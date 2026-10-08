@@ -35,13 +35,23 @@ def _default_connect(url: str):
     return websockets.connect(url, open_timeout=10, max_size=2 ** 22)
 
 
+def _bbox_list(bbox_or_bboxes) -> list:
+    items = list(bbox_or_bboxes)
+    if len(items) == 4 and all(isinstance(v, (int, float)) for v in items):
+        return [tuple(items)]
+    return [tuple(b) for b in items]
+
+
 def build_subscription(api_key: str, bbox, message_types=DEFAULT_MESSAGE_TYPES) -> str:
+    """bbox is one (lat_min, lon_min, lat_max, lon_max) tuple or a list of them."""
     if not api_key:
         raise AisStreamError("aisstream API key is empty; set secret hormuz/aisstream_api_key")
-    lat_min, lon_min, lat_max, lon_max = bbox
+    boxes = _bbox_list(bbox)
+    if not boxes:
+        raise AisStreamError("at least one bounding box is required")
     return json.dumps({
         "APIKey": api_key,
-        "BoundingBoxes": [[[lat_min, lon_min], [lat_max, lon_max]]],
+        "BoundingBoxes": [[[b[0], b[1]], [b[2], b[3]]] for b in boxes],
         "FilterMessageTypes": list(message_types),
     })
 

@@ -1,0 +1,35 @@
+resources:
+  jobs:
+    hormuz_ais_sampler:
+      name: hormuz_ais_sampler
+      max_concurrent_runs: 1
+      schedule:
+        quartz_cron_expression: "0 5 * * * ?"
+        timezone_id: UTC
+      environments:
+        - environment_key: sampler
+          spec:
+            environment_version: "2"
+            dependencies:
+              - "websockets>=13,<17"
+      tasks:
+        - task_key: sample
+          environment_key: sampler
+          spark_python_task:
+            python_file: ../src/jobs/ais_sampler.py
+            parameters:
+              - "--catalog"
+              - ${var.catalog}
+              - "--schema"
+              - ${var.schema}
+              - "--secret-scope"
+              - ${var.secret_scope}
+              - "--src-path"
+              - ${workspace.file_path}/src
+              - "--seconds"
+              - "300"
+        - task_key: refresh_ais
+          depends_on:
+            - task_key: sample
+          pipeline_task:
+            pipeline_id: ${resources.pipelines.hormuz_ais.id}

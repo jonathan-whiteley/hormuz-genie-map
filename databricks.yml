@@ -14,9 +14,6 @@ variables:
   secret_scope:
     description: Secret scope holding the aisstream.io key
     default: hormuz
-  ais_continuous:
-    description: Run the live AIS pipeline continuously (set true once the aisstream key is stored)
-    default: false
 
 include:
   - resources/*.yml

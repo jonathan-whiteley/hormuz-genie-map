@@ -139,3 +139,19 @@ def test_server_error_raises_inside_running_loop():
         return collect_window("bad", BBOX, seconds=1, max_messages=10, connect=connect_to(ws))
     with pytest.raises(AisStreamError, match="Not Valid"):
         asyncio.run(main())
+
+
+def test_build_subscription_multiple_boxes():
+    sub = json.loads(build_subscription("k", [(1.0, 2.0, 3.0, 4.0), (5.0, 6.0, 7.0, 8.0)]))
+    assert sub["BoundingBoxes"] == [[[1.0, 2.0], [3.0, 4.0]], [[5.0, 6.0], [7.0, 8.0]]]
+
+
+def test_build_subscription_rejects_empty_box_list():
+    with pytest.raises(AisStreamError, match="bounding box"):
+        build_subscription("k", [])
+
+
+def test_collect_window_accepts_box_list():
+    ws = FakeWS([pos(5)])
+    rows = collect_window("k", [BBOX, (49.0, -6.0, 56.0, 9.0)], seconds=0.2, max_messages=10, connect=connect_to(ws))
+    assert len(json.loads(ws.sent[0])["BoundingBoxes"]) == 2 and rows[0][2] == 5

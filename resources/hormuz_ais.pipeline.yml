@@ -1,0 +1,15 @@
+resources:
+  pipelines:
+    hormuz_ais:
+      name: hormuz_ais
+      catalog: ${var.catalog}
+      schema: ${var.schema}
+      serverless: true
+      channel: CURRENT
+      root_path: ../src
+      libraries:
+        - glob:
+            include: ../src/pipelines/ais/**
+      configuration:
+        hormuz.catalog: ${var.catalog}
+        hormuz.schema: ${var.schema}
