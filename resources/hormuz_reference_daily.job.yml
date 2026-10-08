@@ -1,0 +1,11 @@
+resources:
+  jobs:
+    hormuz_reference_daily:
+      name: hormuz_reference_daily
+      schedule:
+        quartz_cron_expression: "0 0 7 * * ?"
+        timezone_id: UTC
+      tasks:
+        - task_key: refresh_reference
+          pipeline_task:
+            pipeline_id: ${resources.pipelines.hormuz_reference.id}

@@ -1,0 +1,23 @@
+resources:
+  pipelines:
+    hormuz_reference:
+      name: hormuz_reference
+      catalog: ${var.catalog}
+      schema: ${var.schema}
+      serverless: true
+      channel: CURRENT
+      root_path: ../src
+      libraries:
+        - glob:
+            include: ../src/pipelines/reference/**
+      configuration:
+        hormuz.bbox: ${var.bbox}
+        hormuz.baseline_start: "2026-01-01"
+        hormuz.baseline_end: "2026-02-27"
+        hormuz.chokepoints_since: "2019-01-01"
+        hormuz.ports_since: "2024-01-01"
+        hormuz.port_iso3: "SAU,ARE,QAT,KWT,BHR,IRQ,IRN,OMN,YEM,DJI,EGY"
+        hormuz.land_geojson_url: "https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_50m_land.geojson"
+      environment:
+        dependencies:
+          - requests

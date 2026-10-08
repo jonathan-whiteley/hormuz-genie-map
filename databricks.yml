@@ -1,0 +1,28 @@
+bundle:
+  name: hormuz_genie_map
+
+variables:
+  catalog:
+    description: Unity Catalog catalog for all tables
+    default: jdub_demo
+  schema:
+    description: Schema for all tables (create it first; see README)
+    default: hormuz
+  bbox:
+    description: Region as lat_min,lon_min,lat_max,lon_max
+    default: "12,32,31,62"
+  secret_scope:
+    description: Secret scope holding the aisstream.io key
+    default: hormuz
+  ais_continuous:
+    description: Run the live AIS pipeline continuously (set true once the aisstream key is stored)
+    default: false
+
+include:
+  - resources/*.yml
+
+targets:
+  demo:
+    default: true
+    workspace:
+      root_path: /Workspace/Users/${workspace.current_user.userName}/.bundle/${bundle.name}/${bundle.target}
