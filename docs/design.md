@@ -34,11 +34,14 @@ One Declarative Automation Bundle, two pipelines:
 
 1. `reference_daily` (triggered, daily job): PortWatch + land polygons, plus gold
    tables that need no AIS (chokepoint gap vs. baseline, bypass port surge).
-2. `ais_live` (continuous once the key exists): custom PySpark streaming data
-   source `aisstream` (mirrors the OpenSky blog pattern) -> `bronze_ais_raw` ->
-   silver positions / static / collector heartbeat. Heartbeat rows record when the
-   collector was listening so our own downtime is never mistaken for a vessel
-   going dark.
+2. `hormuz_ais_sampler` (hourly job): listens to aisstream.io for 5 minutes across
+   target regions (Gulf/Hormuz, Red Sea) and busy control lanes (North Sea/Channel,
+   Suez/East Med, Malacca/Singapore), appends to `bronze_ais_samples`, then refreshes
+   the `hormuz_ais` pipeline: silver positions, `gold_ais_visibility`,
+   `gold_ais_visibility_index` (target density vs. control mean), `gold_ais_h3_daily`.
+   Revised 2026-10-08: a live probe returned 877 messages in 20 s for the North Sea
+   but about 3 in 105 s for the whole Gulf and Red Sea, so a continuous stream would
+   sit idle; the near-silence itself is the measurable story (an AIS visibility index).
 
 Region bbox (lat_min, lon_min, lat_max, lon_max) = (12, 32, 31, 62): Persian Gulf,
 Gulf of Oman, northern Arabian Sea, Red Sea (Yanbu, Bab el-Mandeb).

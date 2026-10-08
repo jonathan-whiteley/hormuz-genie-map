@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** A replicable Databricks bundle that lands IMF PortWatch + Natural Earth reference data and gold "visible transits vs. baseline" tables on a daily schedule, a Genie space over them, and a ready-to-switch-on aisstream.io live AIS pipeline.
+**Goal:** A replicable Databricks bundle that lands IMF PortWatch + Natural Earth reference data and gold "visible transits vs. baseline" tables on a daily schedule, a Genie space over them, and an hourly aisstream.io AIS visibility sampler that compares Gulf visibility to busy control lanes.
 
-**Architecture:** One Declarative Automation Bundle with two Lakeflow Spark Declarative Pipelines (serverless). `hormuz_reference` (triggered daily by a job) pulls PortWatch via paginated ArcGIS REST and Natural Earth land polygons inside Python materialized views, then builds SQL gold MVs. `hormuz_ais_live` uses a custom PySpark streaming data source (`aisstream`) that opens the aisstream.io websocket for a fixed window per micro-batch and always emits a heartbeat row. All network/parsing logic lives in pure Python modules under `src/hormuz_sources/` with local pytest coverage; pipeline files are thin.
+**Architecture:** One Declarative Automation Bundle with two Lakeflow Spark Declarative Pipelines (serverless). `hormuz_reference` (triggered daily by a job) pulls PortWatch via paginated ArcGIS REST and Natural Earth land polygons inside Python materialized views, then builds SQL gold MVs. `hormuz_ais` is refreshed hourly by a job whose first task listens to aisstream.io for 5 minutes across target and control regions (always ending with a heartbeat row) and appends to `bronze_ais_samples`. All network/parsing logic lives in pure Python modules under `src/hormuz_sources/` with local pytest coverage; pipeline files are thin.
 
 **Tech Stack:** Python 3.11, PySpark 4 Python Data Source API (`pyspark.sql.datasource`), Lakeflow SDP (`from pyspark import pipelines as dp`), Databricks SQL H3 + ST functions, `requests`, `websockets`, Databricks CLI bundles, pytest, uv.
 
@@ -20,7 +20,7 @@
 - Region bbox string `"12,32,31,62"` = lat_min, lon_min, lat_max, lon_max.
 - Pre-war baseline: `2026-01-01` to `2026-02-27` inclusive.
 - Region port ISO3 list: `SAU,ARE,QAT,KWT,BHR,IRQ,IRN,OMN,YEM,DJI,EGY`.
-- Secret: scope `hormuz`, key `aisstream_api_key`. The key is NOT available yet: never start `hormuz_ais_live`.
+- Secret: scope `hormuz`, key `aisstream_api_key` (stored and verified 2026-10-08).
 - Modern SDP syntax only: `from pyspark import pipelines as dp`, `CREATE OR REFRESH`, no `LIVE.` prefix, no `import dlt`.
 - No em dashes or en dashes in any prose, comments, table comments, README, or Genie text.
 - Commit messages end with the line `Co-authored-by: Isaac <no-reply@databricks.com>`.
@@ -1088,250 +1088,482 @@ Expected (matches the PortWatch API probe): Jan about 58.5, Feb about 78.3, Mar 
 
 ---
 
-### Task 4: Live AIS pipeline (code + deploy, NOT started)
+### Task 4: Hourly AIS visibility sampler (job + SQL pipeline, run once)
+
+> Revised 2026-10-08 after a live probe: aisstream delivered 877 messages / 20 s in the North Sea but about 3 messages / 105 s across the Gulf and Red Sea. The user chose an hourly sampler over a continuous stream. The custom streaming data source and continuous pipeline are dropped (YAGNI).
 
 **Files:**
-- Create: `src/hormuz_sources/aisstream_datasource.py`, `resources/hormuz_ais_live.pipeline.yml`
-- Create: `src/pipelines/ais/bronze_ais_raw.py`, `src/pipelines/ais/silver_ais_positions.sql`, `src/pipelines/ais/silver_ais_static.sql`, `src/pipelines/ais/silver_collector_heartbeat.sql`
-- Test: `tests/test_aisstream_datasource.py`
+- Create: `src/hormuz_sources/regions.py`, `src/jobs/ais_sampler.py`
+- Modify: `src/hormuz_sources/aisstream_core.py` (`build_subscription` and `collect_window` accept one bbox or a list of bboxes)
+- Create: `src/pipelines/ais/ref_ais_regions.py`, `src/pipelines/ais/silver_ais_positions.sql`, `src/pipelines/ais/gold_ais_visibility.sql`, `src/pipelines/ais/gold_ais_visibility_index.sql`, `src/pipelines/ais/gold_ais_h3_daily.sql`
+- Create: `resources/hormuz_ais.pipeline.yml`, `resources/hormuz_ais_sampler.job.yml`
+- Modify: `databricks.yml` (remove the `ais_continuous` variable; keep everything else)
+- Test: `tests/test_regions.py`, `tests/test_ais_sampler.py`, add tests to `tests/test_aisstream_core.py`
 
 **Interfaces:**
-- Consumes: Task 2 `collect_window`, `ROW_SCHEMA_DDL`, `DEFAULT_MESSAGE_TYPES`; Task 1 `parse_bbox`.
-- Produces: data source format name `"aisstream"` with options `api_key`, `bbox`, `window_seconds`, `max_messages`, `message_types`; tables `bronze_ais_raw`, `silver_ais_positions`, `silver_ais_static`, `silver_collector_heartbeat`.
+- Consumes: Task 2 `collect_window`, `ROW_SCHEMA_DDL`, `AisStreamError`, `HEARTBEAT_TYPE`.
+- Produces:
+  - `regions.Region` (frozen dataclass: `name`, `role` in {"target","control"}, `bbox` (lat_min, lon_min, lat_max, lon_max), `label`), `regions.REGIONS` tuple, `regions.region_for(lat, lon) -> str | None`, `regions.area_km2(bbox) -> float`
+  - `aisstream_core.build_subscription(api_key, bbox_or_bboxes, message_types=...)` and `collect_window(api_key, bbox_or_bboxes, seconds, max_messages, message_types=..., connect=None, now=None)`; a single 4-tuple still works.
+  - `ais_sampler.sample(api_key, seconds, max_messages, collect=collect_window) -> tuple[str, list[tuple]]` (sample_id uuid4 string, rows), `ais_sampler.parse_args(argv)`
+  - UC tables in `jdub_demo.hormuz`: `bronze_ais_samples` (written by the job: `ROW_SCHEMA_DDL` columns + `sample_id STRING`), `ref_ais_regions`, `silver_ais_positions`, `gold_ais_visibility`, `gold_ais_visibility_index`, `gold_ais_h3_daily`.
 
-- [ ] **Step 1: Write failing test** `tests/test_aisstream_datasource.py`:
+Regions (exact values; no two boxes overlap):
+
+| name | role | bbox (lat_min, lon_min, lat_max, lon_max) | label |
+|---|---|---|---|
+| gulf_hormuz | target | (22.0, 47.0, 30.5, 60.0) | Persian Gulf, Strait of Hormuz, Gulf of Oman |
+| red_sea | target | (12.0, 32.0, 29.5, 44.0) | Red Sea and Bab el-Mandeb |
+| north_sea_channel | control | (49.0, -6.0, 56.0, 9.0) | North Sea and English Channel |
+| suez_east_med | control | (29.5, 28.0, 36.5, 36.5) | Suez approaches and Eastern Mediterranean |
+| malacca_singapore | control | (0.5, 95.0, 7.0, 105.0) | Strait of Malacca and Singapore |
+
+Note red_sea lat_max 29.5 equals suez_east_med lat_min: `region_for` uses half-open latitude `[lat_min, lat_max)` so a point at exactly 29.5 belongs to suez_east_med. SQL uses the same rule.
+
+- [ ] **Step 1: Write failing tests**
+
+`tests/test_regions.py`:
 ```python
+import itertools
 import pytest
-
-pytest.importorskip("pyspark.sql.datasource")
-
-from hormuz_sources import aisstream_datasource as ds
+from hormuz_sources.regions import REGIONS, Region, area_km2, region_for
 
 
-def test_name_and_schema():
-    assert ds.AisStreamDataSource.name() == "aisstream"
-    assert ds.AisStreamDataSource(options={}).schema().startswith("received_at TIMESTAMP")
+def test_region_table_exact():
+    assert [(r.name, r.role) for r in REGIONS] == [
+        ("gulf_hormuz", "target"), ("red_sea", "target"),
+        ("north_sea_channel", "control"), ("suez_east_med", "control"), ("malacca_singapore", "control"),
+    ]
+    assert REGIONS[0].bbox == (22.0, 47.0, 30.5, 60.0)
 
 
-def test_reader_reads_one_window_and_advances_offset(monkeypatch):
-    calls = []
-
-    def fake_collect(api_key, bbox, seconds, max_messages, message_types):
-        calls.append((api_key, bbox, seconds, max_messages, message_types))
-        return [("row",)]
-
-    monkeypatch.setattr(ds, "collect_window", fake_collect)
-    reader = ds.AisStreamReader({"api_key": "k", "bbox": "12,32,31,62", "window_seconds": "5", "max_messages": "7", "message_types": "PositionReport, ShipStaticData"})
-    assert reader.initialOffset() == {"batch": 0}
-    rows, end = reader.read({"batch": 3})
-    assert list(rows) == [("row",)] and end == {"batch": 4}
-    assert calls == [("k", (12.0, 32.0, 31.0, 62.0), 5.0, 7, ("PositionReport", "ShipStaticData"))]
-    assert list(reader.readBetweenOffsets({"batch": 0}, {"batch": 1})) == []
+def test_no_overlaps_half_open_lat():
+    for a, b in itertools.combinations(REGIONS, 2):
+        lat_overlap = a.bbox[0] < b.bbox[2] and b.bbox[0] < a.bbox[2]
+        lon_overlap = a.bbox[1] <= b.bbox[3] and b.bbox[1] <= a.bbox[3]
+        assert not (lat_overlap and lon_overlap), (a.name, b.name)
 
 
-def test_reader_defaults():
-    r = ds.AisStreamReader({"api_key": "k"})
-    assert r.bbox == (12.0, 32.0, 31.0, 62.0) and r.seconds == 30.0 and r.max_messages == 50000
-    assert r.message_types == ("PositionReport", "StandardClassBPositionReport", "ShipStaticData")
+@pytest.mark.parametrize("lat,lon,expected", [
+    (26.5, 56.3, "gulf_hormuz"), (20.0, 38.0, "red_sea"), (29.5, 32.5, "suez_east_med"),
+    (51.0, 1.5, "north_sea_channel"), (1.3, 103.8, "malacca_singapore"), (0.0, 0.0, None), (None, 10.0, None),
+])
+def test_region_for(lat, lon, expected):
+    assert region_for(lat, lon) == expected
+
+
+def test_area_km2_plausible():
+    # 1 x 1 degree at the equator is about 12,364 km2
+    assert area_km2((0.0, 0.0, 1.0, 1.0)) == pytest.approx(12364, rel=0.01)
+    assert 5e5 < area_km2(REGIONS[2].bbox) < 1.2e6
+
+
+def test_region_roles_valid():
+    assert all(isinstance(r, Region) and r.role in ("target", "control") for r in REGIONS)
 ```
 
-- [ ] **Step 2: Run with PySpark 4 to see it fail**
-
-```bash
-cd ~/Desktop/Projects/hormuz-genie-map && uv run --no-project --with pytest --with websockets --with requests --with "pyspark>=4.0,<4.1" pytest -q tests/test_aisstream_datasource.py
-```
-Expected: FAIL (ModuleNotFoundError `aisstream_datasource`). Under the default test command (no PySpark 4) this file is skipped.
-
-- [ ] **Step 3: Implement** `src/hormuz_sources/aisstream_datasource.py`:
+Add to `tests/test_aisstream_core.py`:
 ```python
-"""PySpark streaming data source `aisstream`: each micro-batch listens to aisstream.io for one window.
+def test_build_subscription_multiple_boxes():
+    sub = json.loads(build_subscription("k", [(1.0, 2.0, 3.0, 4.0), (5.0, 6.0, 7.0, 8.0)]))
+    assert sub["BoundingBoxes"] == [[[1.0, 2.0], [3.0, 4.0]], [[5.0, 6.0], [7.0, 8.0]]]
 
-aisstream does not replay missed events, so offsets are just a batch counter and
-readBetweenOffsets returns nothing (data from a failed batch is not recoverable).
+
+def test_build_subscription_rejects_empty_box_list():
+    with pytest.raises(AisStreamError, match="bounding box"):
+        build_subscription("k", [])
+
+
+def test_collect_window_accepts_box_list():
+    ws = FakeWS([pos(5)])
+    rows = collect_window("k", [BBOX, (49.0, -6.0, 56.0, 9.0)], seconds=0.2, max_messages=10, connect=connect_to(ws))
+    assert len(json.loads(ws.sent[0])["BoundingBoxes"]) == 2 and rows[0][2] == 5
+```
+
+`tests/test_ais_sampler.py`:
+```python
+import uuid
+from hormuz_sources.regions import REGIONS
+from jobs.ais_sampler import parse_args, sample
+
+
+def test_sample_listens_to_every_region_and_tags_id():
+    seen = {}
+
+    def fake_collect(api_key, bboxes, seconds, max_messages):
+        seen.update(api_key=api_key, bboxes=bboxes, seconds=seconds, max_messages=max_messages)
+        return [("row",), ("heartbeat",)]
+
+    sample_id, rows = sample("k", 300.0, 1000, collect=fake_collect)
+    uuid.UUID(sample_id)
+    assert rows == [("row",), ("heartbeat",)]
+    assert seen == {"api_key": "k", "bboxes": [r.bbox for r in REGIONS], "seconds": 300.0, "max_messages": 1000}
+
+
+def test_parse_args_defaults():
+    a = parse_args(["--catalog", "c", "--schema", "s"])
+    assert (a.catalog, a.schema, a.secret_scope, a.secret_key, a.seconds, a.max_messages, a.src_path) == (
+        "c", "s", "hormuz", "aisstream_api_key", 300.0, 500000, None)
+```
+`jobs` must be importable in tests: add `src/jobs/__init__.py` (empty); `pythonpath = ["src"]` already covers it.
+
+- [ ] **Step 2: Run tests, verify they fail** (default test command).
+
+- [ ] **Step 3: Implement**
+
+`src/hormuz_sources/regions.py`:
+```python
+"""Sampling regions for the AIS visibility index: Gulf targets plus busy control lanes (pure Python)."""
+from __future__ import annotations
+
+import math
+from dataclasses import dataclass
+
+EARTH_RADIUS_KM = 6371.0088
+
+
+@dataclass(frozen=True)
+class Region:
+    name: str
+    role: str  # "target" or "control"
+    bbox: tuple[float, float, float, float]  # lat_min, lon_min, lat_max, lon_max
+    label: str
+
+
+REGIONS = (
+    Region("gulf_hormuz", "target", (22.0, 47.0, 30.5, 60.0), "Persian Gulf, Strait of Hormuz, Gulf of Oman"),
+    Region("red_sea", "target", (12.0, 32.0, 29.5, 44.0), "Red Sea and Bab el-Mandeb"),
+    Region("north_sea_channel", "control", (49.0, -6.0, 56.0, 9.0), "North Sea and English Channel"),
+    Region("suez_east_med", "control", (29.5, 28.0, 36.5, 36.5), "Suez approaches and Eastern Mediterranean"),
+    Region("malacca_singapore", "control", (0.5, 95.0, 7.0, 105.0), "Strait of Malacca and Singapore"),
+)
+
+
+def region_for(lat, lon) -> str | None:
+    """First region containing the point; latitude is half-open [lat_min, lat_max), longitude closed."""
+    if lat is None or lon is None:
+        return None
+    for r in REGIONS:
+        lat_min, lon_min, lat_max, lon_max = r.bbox
+        if lat_min <= lat < lat_max and lon_min <= lon <= lon_max:
+            return r.name
+    return None
+
+
+def area_km2(bbox) -> float:
+    """Spherical area of a lat/lon box."""
+    lat_min, lon_min, lat_max, lon_max = bbox
+    return (EARTH_RADIUS_KM ** 2) * math.radians(lon_max - lon_min) * (
+        math.sin(math.radians(lat_max)) - math.sin(math.radians(lat_min)))
+```
+
+`src/hormuz_sources/aisstream_core.py`: change `build_subscription` so the second argument may be one bbox or a sequence of bboxes:
+```python
+def _bbox_list(bbox_or_bboxes) -> list:
+    items = list(bbox_or_bboxes)
+    if len(items) == 4 and all(isinstance(v, (int, float)) for v in items):
+        return [tuple(items)]
+    return [tuple(b) for b in items]
+
+
+def build_subscription(api_key: str, bbox, message_types=DEFAULT_MESSAGE_TYPES) -> str:
+    if not api_key:
+        raise AisStreamError("aisstream API key is empty; set secret hormuz/aisstream_api_key")
+    boxes = _bbox_list(bbox)
+    if not boxes:
+        raise AisStreamError("at least one bounding box is required")
+    return json.dumps({
+        "APIKey": api_key,
+        "BoundingBoxes": [[[b[0], b[1]], [b[2], b[3]]] for b in boxes],
+        "FilterMessageTypes": list(message_types),
+    })
+```
+`collect_window` keeps its signature (its `bbox` parameter now documents "one bbox or a list"); no other change.
+
+`src/jobs/__init__.py`: empty.
+
+`src/jobs/ais_sampler.py`:
+```python
+"""Hourly AIS visibility sampler: listen to aisstream.io for one window across all regions and append raw rows.
+
+Runs as a serverless Python job task. Rows land in <catalog>.<schema>.bronze_ais_samples; the last row of
+every sample is a _heartbeat describing the listening window.
 """
 from __future__ import annotations
 
-from pyspark.sql.datasource import DataSource, SimpleDataSourceStreamReader
-
-from hormuz_sources.aisstream_core import DEFAULT_MESSAGE_TYPES, ROW_SCHEMA_DDL, collect_window
-from hormuz_sources.geo import parse_bbox
-
-
-class AisStreamDataSource(DataSource):
-    @classmethod
-    def name(cls):
-        return "aisstream"
-
-    def schema(self):
-        return ROW_SCHEMA_DDL
-
-    def simpleStreamReader(self, schema):
-        return AisStreamReader(self.options)
+import argparse
+import sys
+import uuid
 
 
-class AisStreamReader(SimpleDataSourceStreamReader):
-    def __init__(self, options):
-        self.api_key = options.get("api_key", "")
-        self.bbox = parse_bbox(options.get("bbox", "12,32,31,62"))
-        self.seconds = float(options.get("window_seconds", "30"))
-        self.max_messages = int(options.get("max_messages", "50000"))
-        types = options.get("message_types")
-        self.message_types = tuple(t.strip() for t in types.split(",") if t.strip()) if types else DEFAULT_MESSAGE_TYPES
+def parse_args(argv=None):
+    p = argparse.ArgumentParser(description=__doc__)
+    p.add_argument("--catalog", required=True)
+    p.add_argument("--schema", required=True)
+    p.add_argument("--secret-scope", default="hormuz")
+    p.add_argument("--secret-key", default="aisstream_api_key")
+    p.add_argument("--seconds", type=float, default=300.0)
+    p.add_argument("--max-messages", type=int, default=500000)
+    p.add_argument("--src-path", default=None, help="Path to the bundle's src/ folder, added to sys.path")
+    return p.parse_args(argv)
 
-    def initialOffset(self):
-        return {"batch": 0}
 
-    def read(self, start):
-        rows = collect_window(self.api_key, self.bbox, self.seconds, self.max_messages, self.message_types)
-        return iter(rows), {"batch": int(start["batch"]) + 1}
+def sample(api_key, seconds, max_messages, collect=None):
+    from hormuz_sources.regions import REGIONS
 
-    def readBetweenOffsets(self, start, end):
-        return iter([])
+    if collect is None:
+        from hormuz_sources.aisstream_core import collect_window as collect
+    sample_id = str(uuid.uuid4())
+    rows = collect(api_key, [r.bbox for r in REGIONS], seconds, max_messages)
+    return sample_id, rows
+
+
+def main(argv=None):
+    args = parse_args(argv)
+    if args.src_path:
+        sys.path.insert(0, args.src_path)
+    from databricks.sdk import WorkspaceClient
+    from pyspark.sql import SparkSession, functions as F
+
+    from hormuz_sources.aisstream_core import ROW_SCHEMA_DDL
+
+    api_key = WorkspaceClient().dbutils.secrets.get(args.secret_scope, args.secret_key)
+    sample_id, rows = sample(api_key, args.seconds, args.max_messages)
+    spark = SparkSession.builder.getOrCreate()
+    table = f"{args.catalog}.{args.schema}.bronze_ais_samples"
+    (spark.createDataFrame(rows, ROW_SCHEMA_DDL)
+        .withColumn("sample_id", F.lit(sample_id))
+        .write.mode("append").saveAsTable(table))
+    hb = rows[-1]
+    print(f"sample {sample_id}: {hb[6]} messages in {(hb[5] - hb[4]).total_seconds():.0f}s, error={hb[7]} -> {table}")
+
+
+if __name__ == "__main__":
+    main(sys.argv[1:])
 ```
+Note: `sample` imports lazily so the test can import `jobs.ais_sampler` without Spark; the test passes `collect=` so `collect_window` is not called. In `main`, `sys.path` must include `src` before the `hormuz_sources` imports; when run as a job, `--src-path` supplies it.
 
-- [ ] **Step 4: Run tests, verify pass** (both the PySpark 4 command above and the default command).
+- [ ] **Step 4: Run tests, verify they pass** (default command; whole suite green).
 
-- [ ] **Step 5: Pipeline files and resource**
+- [ ] **Step 5: Pipeline files**
 
-`src/pipelines/ais/bronze_ais_raw.py`:
+`src/pipelines/ais/ref_ais_regions.py`:
 ```python
 from pyspark import pipelines as dp
 
-from hormuz_sources.aisstream_datasource import AisStreamDataSource
-
-spark.dataSource.register(AisStreamDataSource)
+from hormuz_sources.regions import REGIONS, area_km2
 
 
-@dp.table(
-    name="bronze_ais_raw",
-    comment="Raw aisstream.io messages for the demo region, one row per message plus one _heartbeat row per listening window.",
-    cluster_by=["message_type"],
+@dp.materialized_view(
+    name="ref_ais_regions",
+    comment="AIS sampling regions: Gulf targets and busy control lanes, with bounding boxes and area. Latitude bounds are half-open [lat_min, lat_max).",
 )
-def bronze_ais_raw():
-    api_key = dbutils.secrets.get(spark.conf.get("hormuz.secret_scope"), spark.conf.get("hormuz.secret_key"))
-    return (
-        spark.readStream.format("aisstream")
-        .option("api_key", api_key)
-        .option("bbox", spark.conf.get("hormuz.bbox"))
-        .option("window_seconds", spark.conf.get("hormuz.ais_window_seconds", "30"))
-        .load()
+def ref_ais_regions():
+    rows = [(r.name, r.role, r.label, *r.bbox, area_km2(r.bbox)) for r in REGIONS]
+    return spark.createDataFrame(
+        rows,
+        "region STRING, role STRING, label STRING, lat_min DOUBLE, lon_min DOUBLE, lat_max DOUBLE, lon_max DOUBLE, area_km2 DOUBLE",
     )
 ```
 
 `src/pipelines/ais/silver_ais_positions.sql`:
 ```sql
-CREATE OR REFRESH STREAMING TABLE silver_ais_positions (
-  CONSTRAINT has_mmsi EXPECT (mmsi IS NOT NULL) ON VIOLATION DROP ROW
+CREATE OR REFRESH MATERIALIZED VIEW silver_ais_positions
+CLUSTER BY (region, window_start)
+COMMENT 'AIS position reports from the hourly samples, assigned to a sampling region, with H3 res 5 and 7 cells. AIS not-available coordinates (lat 91, lon 181) and rows without MMSI are removed before indexing.'
+AS
+WITH parsed AS (
+  SELECT sample_id, window_start, window_end, received_at, mmsi, message_type, parse_json(payload) AS v
+  FROM ${hormuz.catalog}.${hormuz.schema}.bronze_ais_samples
+  WHERE message_type IN ('PositionReport', 'StandardClassBPositionReport') AND mmsi IS NOT NULL
+),
+pos AS (
+  SELECT *, v:MetaData.latitude::double AS lat, v:MetaData.longitude::double AS lon
+  FROM parsed
+),
+valid AS (
+  SELECT * FROM pos WHERE lat BETWEEN -90 AND 90 AND lon BETWEEN -180 AND 180
 )
-CLUSTER BY (h3_res7, received_at)
-COMMENT 'AIS position reports (class A and B) with H3 res 7 and 9 cells. AIS "not available" coordinates (lat 91, lon 181) are removed before indexing.'
-AS SELECT
-  received_at,
-  mmsi,
-  message_type,
-  v:MetaData.ShipName::string AS ship_name,
-  lat,
-  lon,
-  v:MetaData.time_utc::string AS time_utc_raw,
-  coalesce(v:Message.PositionReport.Sog, v:Message.StandardClassBPositionReport.Sog)::double AS sog_knots,
-  coalesce(v:Message.PositionReport.Cog, v:Message.StandardClassBPositionReport.Cog)::double AS cog_deg,
-  coalesce(v:Message.PositionReport.TrueHeading, v:Message.StandardClassBPositionReport.TrueHeading)::int AS true_heading,
-  v:Message.PositionReport.NavigationalStatus::int AS nav_status,
-  h3_longlatash3(lon, lat, 7) AS h3_res7,
-  h3_longlatash3(lon, lat, 9) AS h3_res9
-FROM (
-  SELECT received_at, mmsi, message_type, v,
-         v:MetaData.latitude::double AS lat,
-         v:MetaData.longitude::double AS lon
-  FROM (SELECT *, parse_json(payload) AS v FROM STREAM(bronze_ais_raw)
-        WHERE message_type IN ('PositionReport', 'StandardClassBPositionReport'))
+SELECT
+  p.sample_id, p.window_start, p.window_end, p.received_at, p.mmsi, p.message_type,
+  p.v:MetaData.ShipName::string AS ship_name,
+  p.lat, p.lon,
+  coalesce(p.v:Message.PositionReport.Sog, p.v:Message.StandardClassBPositionReport.Sog)::double AS sog_knots,
+  coalesce(p.v:Message.PositionReport.Cog, p.v:Message.StandardClassBPositionReport.Cog)::double AS cog_deg,
+  coalesce(p.v:Message.PositionReport.TrueHeading, p.v:Message.StandardClassBPositionReport.TrueHeading)::int AS true_heading,
+  p.v:Message.PositionReport.NavigationalStatus::int AS nav_status,
+  h3_longlatash3(p.lon, p.lat, 5) AS h3_res5,
+  h3_longlatash3(p.lon, p.lat, 7) AS h3_res7,
+  r.region, r.role
+FROM valid p
+JOIN ref_ais_regions r
+  ON p.lat >= r.lat_min AND p.lat < r.lat_max AND p.lon BETWEEN r.lon_min AND r.lon_max;
+```
+
+`src/pipelines/ais/gold_ais_visibility.sql`:
+```sql
+CREATE OR REFRESH MATERIALIZED VIEW gold_ais_visibility
+COMMENT 'One row per hourly sample and region: AIS positions and unique vessels heard by the free aisstream.io receiver network during the listening window, plus density per 10,000 km2. Low values in target regions mean low AIS visibility, not necessarily low traffic.'
+AS
+WITH samples AS (
+  SELECT sample_id, window_start, window_end,
+         timestampdiff(SECOND, window_start, window_end) AS window_seconds,
+         n_messages AS total_messages, error
+  FROM ${hormuz.catalog}.${hormuz.schema}.bronze_ais_samples
+  WHERE message_type = '_heartbeat'
+),
+per_region AS (
+  SELECT sample_id, region, COUNT(*) AS positions, COUNT(DISTINCT mmsi) AS unique_vessels
+  FROM silver_ais_positions
+  GROUP BY sample_id, region
 )
-WHERE lat BETWEEN -90 AND 90 AND lon BETWEEN -180 AND 180;
+SELECT
+  s.sample_id, s.window_start, date_trunc('HOUR', s.window_start) AS sample_hour, s.window_seconds,
+  s.total_messages, s.error,
+  r.region, r.role, r.label, r.area_km2,
+  coalesce(p.positions, 0) AS positions,
+  coalesce(p.unique_vessels, 0) AS unique_vessels,
+  ROUND(coalesce(p.unique_vessels, 0) * 10000.0 / r.area_km2, 3) AS vessels_per_10k_km2,
+  ROUND(coalesce(p.positions, 0) * 60.0 / NULLIF(s.window_seconds, 0), 2) AS positions_per_minute
+FROM samples s
+CROSS JOIN ref_ais_regions r
+LEFT JOIN per_region p ON p.sample_id = s.sample_id AND p.region = r.region;
 ```
 
-`src/pipelines/ais/silver_ais_static.sql`:
+`src/pipelines/ais/gold_ais_visibility_index.sql`:
 ```sql
-CREATE OR REFRESH STREAMING TABLE silver_ais_static
-COMMENT 'AIS static and voyage data (ship type, size, draught, destination). Draught changes at port suggest loading or unloading.'
-AS SELECT
-  received_at,
-  mmsi,
-  v:MetaData.ShipName::string AS ship_name,
-  v:Message.ShipStaticData.ImoNumber::bigint AS imo,
-  v:Message.ShipStaticData.CallSign::string AS call_sign,
-  v:Message.ShipStaticData.Type::int AS ship_type,
-  (v:Message.ShipStaticData.Dimension.A::int + v:Message.ShipStaticData.Dimension.B::int) AS length_m,
-  (v:Message.ShipStaticData.Dimension.C::int + v:Message.ShipStaticData.Dimension.D::int) AS beam_m,
-  v:Message.ShipStaticData.MaximumStaticDraught::double AS draught_m,
-  v:Message.ShipStaticData.Destination::string AS destination
-FROM (SELECT *, parse_json(payload) AS v FROM STREAM(bronze_ais_raw) WHERE message_type = 'ShipStaticData');
+CREATE OR REFRESH MATERIALIZED VIEW gold_ais_visibility_index
+COMMENT 'AIS visibility of each target region relative to the mean of the control lanes in the same sample (1.0 = as visible as a normal busy lane; near 0 = almost dark).'
+AS
+WITH ctrl AS (
+  SELECT sample_id, AVG(vessels_per_10k_km2) AS control_vessels_per_10k_km2
+  FROM gold_ais_visibility WHERE role = 'control'
+  GROUP BY sample_id
+)
+SELECT
+  t.sample_id, t.sample_hour, t.region, t.label, t.unique_vessels, t.vessels_per_10k_km2,
+  c.control_vessels_per_10k_km2,
+  ROUND(t.vessels_per_10k_km2 / NULLIF(c.control_vessels_per_10k_km2, 0), 4) AS visibility_vs_control
+FROM gold_ais_visibility t
+JOIN ctrl c ON c.sample_id = t.sample_id
+WHERE t.role = 'target';
 ```
 
-`src/pipelines/ais/silver_collector_heartbeat.sql`:
+`src/pipelines/ais/gold_ais_h3_daily.sql`:
 ```sql
-CREATE OR REFRESH STREAMING TABLE silver_collector_heartbeat
-COMMENT 'One row per collector listening window. Use it to exclude periods when the collector was down before treating AIS gaps as vessels going dark.'
+CREATE OR REFRESH MATERIALIZED VIEW gold_ais_h3_daily
+COMMENT 'Daily AIS vessels heard per H3 res 5 cell and region across hourly samples; the map layer for AIS visibility.'
 AS SELECT
-  window_start,
-  window_end,
-  timestampdiff(SECOND, window_start, window_end) AS window_seconds,
-  n_messages,
-  error
-FROM STREAM(bronze_ais_raw)
-WHERE message_type = '_heartbeat';
+  region, role,
+  CAST(window_start AS DATE) AS day,
+  h3_res5,
+  h3_h3tostring(h3_res5) AS h3_res5_str,
+  COUNT(*) AS positions,
+  COUNT(DISTINCT mmsi) AS unique_vessels,
+  COUNT(DISTINCT sample_id) AS samples
+FROM silver_ais_positions
+GROUP BY region, role, CAST(window_start AS DATE), h3_res5;
 ```
 
-`resources/hormuz_ais_live.pipeline.yml`:
+`resources/hormuz_ais.pipeline.yml`:
 ```yaml
 resources:
   pipelines:
-    hormuz_ais_live:
-      name: hormuz_ais_live
+    hormuz_ais:
+      name: hormuz_ais
       catalog: ${var.catalog}
       schema: ${var.schema}
       serverless: true
       channel: CURRENT
-      continuous: ${var.ais_continuous}
       root_path: ../src
       libraries:
         - glob:
             include: ../src/pipelines/ais/**
       configuration:
-        hormuz.bbox: ${var.bbox}
-        hormuz.secret_scope: ${var.secret_scope}
-        hormuz.secret_key: aisstream_api_key
-        hormuz.ais_window_seconds: "30"
-      environment:
-        dependencies:
-          - "websockets>=13,<17"
+        hormuz.catalog: ${var.catalog}
+        hormuz.schema: ${var.schema}
 ```
 
-- [ ] **Step 6: Warehouse check of the silver parsing logic (pins Review Focus 1)**
+`resources/hormuz_ais_sampler.job.yml`:
+```yaml
+resources:
+  jobs:
+    hormuz_ais_sampler:
+      name: hormuz_ais_sampler
+      max_concurrent_runs: 1
+      schedule:
+        quartz_cron_expression: "0 5 * * * ?"
+        timezone_id: UTC
+      environments:
+        - environment_key: sampler
+          spec:
+            environment_version: "2"
+            dependencies:
+              - "websockets>=13,<17"
+      tasks:
+        - task_key: sample
+          environment_key: sampler
+          spark_python_task:
+            python_file: ../src/jobs/ais_sampler.py
+            parameters:
+              - "--catalog"
+              - ${var.catalog}
+              - "--schema"
+              - ${var.schema}
+              - "--secret-scope"
+              - ${var.secret_scope}
+              - "--src-path"
+              - ${workspace.file_path}/src
+              - "--seconds"
+              - "300"
+        - task_key: refresh_ais
+          depends_on:
+            - task_key: sample
+          pipeline_task:
+            pipeline_id: ${resources.pipelines.hormuz_ais.id}
+```
+If `environment_version` is rejected by validate, use `client: "2"` (older spec key).
 
+In `databricks.yml` remove the `ais_continuous` variable block only.
+
+- [ ] **Step 6: Warehouse check of the silver parsing logic** (pins Review Focus 1)
 ```bash
 databricks experimental aitools tools query --profile DEFAULT "
 WITH bronze AS (SELECT * FROM VALUES
   ('PositionReport', 1, '{\"MessageType\":\"PositionReport\",\"MetaData\":{\"MMSI\":1,\"ShipName\":\"A\",\"latitude\":26.5,\"longitude\":56.3},\"Message\":{\"PositionReport\":{\"Sog\":11.5,\"Cog\":120.0,\"TrueHeading\":118,\"NavigationalStatus\":0}}}'),
   ('PositionReport', 2, '{\"MessageType\":\"PositionReport\",\"MetaData\":{\"MMSI\":2,\"latitude\":91.0,\"longitude\":181.0},\"Message\":{\"PositionReport\":{\"Sog\":0}}}')
-  AS t(message_type, mmsi, payload))
-SELECT mmsi, lat, lon, sog_knots, true_heading, h3_longlatash3(lon, lat, 7) AS h3_res7 FROM (
-  SELECT mmsi, coalesce(v:Message.PositionReport.Sog, v:Message.StandardClassBPositionReport.Sog)::double AS sog_knots,
-         coalesce(v:Message.PositionReport.TrueHeading, v:Message.StandardClassBPositionReport.TrueHeading)::int AS true_heading,
-         v:MetaData.latitude::double AS lat, v:MetaData.longitude::double AS lon
-  FROM (SELECT *, parse_json(payload) AS v FROM bronze))
-WHERE lat BETWEEN -90 AND 90 AND lon BETWEEN -180 AND 180"
+  AS t(message_type, mmsi, payload)),
+parsed AS (SELECT mmsi, parse_json(payload) AS v FROM bronze),
+pos AS (SELECT *, v:MetaData.latitude::double AS lat, v:MetaData.longitude::double AS lon FROM parsed),
+valid AS (SELECT * FROM pos WHERE lat BETWEEN -90 AND 90 AND lon BETWEEN -180 AND 180)
+SELECT mmsi, lat, lon, coalesce(v:Message.PositionReport.Sog, v:Message.StandardClassBPositionReport.Sog)::double AS sog_knots,
+       coalesce(v:Message.PositionReport.TrueHeading, v:Message.StandardClassBPositionReport.TrueHeading)::int AS true_heading,
+       h3_longlatash3(lon, lat, 7) AS h3_res7
+FROM valid"
 ```
-Expected: exactly one row, mmsi 1, sog 11.5, heading 118, non-null h3_res7. No error from the 91/181 row.
+Expected: exactly one row, mmsi 1, sog 11.5, heading 118, non-null h3_res7, no error from the 91/181 row.
 
-- [ ] **Step 7: Deploy without starting**
-
+- [ ] **Step 7: Deploy, run the sampler job once, verify**
 ```bash
+cd ~/Desktop/Projects/hormuz-genie-map
 databricks bundle validate --profile DEFAULT && databricks bundle deploy --profile DEFAULT
-databricks pipelines list-pipelines --filter "name LIKE '%hormuz_ais_live%'" --profile DEFAULT
+databricks bundle run hormuz_ais_sampler --profile DEFAULT
 ```
-Expected: pipeline exists, `continuous` false, no update running. Do NOT run `bundle run hormuz_ais_live`. If `continuous: ${var.ais_continuous}` fails validation as a non-boolean, replace it with a literal `continuous: false` and document in the README that users set it to `true` after storing the key.
+Expected: both job tasks succeed (the sample task takes about 5 minutes). The secret `hormuz/aisstream_api_key` exists. If the deploy also leaves an old `hormuz_ais_live` pipeline from an earlier deploy, report it (do not delete without the controller).
 
-- [ ] **Step 8: Commit** `feat: aisstream streaming data source and live AIS pipeline (not started)` (with trailer).
+Verify:
+```bash
+databricks experimental aitools tools query --profile DEFAULT "
+SELECT region, role, unique_vessels, positions, vessels_per_10k_km2, window_seconds, error
+FROM jdub_demo.hormuz.gold_ais_visibility ORDER BY role DESC, region"
+databricks experimental aitools tools query --profile DEFAULT "
+SELECT region, visibility_vs_control FROM jdub_demo.hormuz.gold_ais_visibility_index"
+databricks experimental aitools tools query --profile DEFAULT "
+SELECT region, COUNT(*) cells, SUM(unique_vessels) vessels FROM jdub_demo.hormuz.gold_ais_h3_daily GROUP BY region"
+```
+Expected: 5 region rows for the one sample, window_seconds about 300; north_sea_channel unique_vessels in the hundreds or more; gulf_hormuz and red_sea near zero; visibility_vs_control for targets far below 1. Record actual numbers.
+
+- [ ] **Step 8: Commit** `feat: hourly AIS visibility sampler and visibility gold tables` (with trailer).
 
 ---
 
@@ -1468,7 +1700,7 @@ Then ask the first three SAMPLE_QUESTIONS through the Genie Conversation API (pe
      databricks bundle run hormuz_reference --profile <p>
      uv run --no-project --with databricks-sdk python -m genie.build_space --profile <p> --catalog <catalog> --schema hormuz --warehouse-id <id>
      ```
-  5. Turning on live AIS: sign up at aisstream.io, `databricks secrets create-scope hormuz`, `databricks secrets put-secret hormuz aisstream_api_key`, then `databricks bundle deploy --var ais_continuous=true` and `databricks bundle run hormuz_ais_live`. Cost note: a continuous serverless pipeline runs 24/7; stop it with `databricks pipelines stop <id>`.
+  5. AIS visibility sampler: sign up at aisstream.io (GitHub login, free), `databricks secrets create-scope hormuz`, `databricks secrets put-secret hormuz aisstream_api_key --string-value "$(pbpaste)"`, then `databricks bundle run hormuz_ais_sampler`. Explain the visibility index (Gulf vs. control lanes) and the live probe that motivated it (North Sea 877 messages in 20 s vs. Gulf about 3 in 105 s on 2026-10-08). Cost note: the job runs hourly (about 5 minutes of serverless compute plus a short pipeline refresh); pause its schedule in the Jobs UI or with `databricks jobs update` when not needed.
   6. Table catalog (each table, one line).
   7. Caveats: PortWatch counts only AIS-visible vessels; aisstream relies on shore receivers and does not replay; OpenSky-style terms do not apply but check aisstream and PortWatch terms; conflict event dates are from public reporting and should be verified.
   8. Tests: the default test command and the PySpark 4 command.
