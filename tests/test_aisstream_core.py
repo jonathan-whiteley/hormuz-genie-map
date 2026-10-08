@@ -115,3 +115,27 @@ def test_uses_injected_clock():
     t = datetime(2026, 10, 7, tzinfo=timezone.utc)
     rows = collect_window("k", BBOX, seconds=0.1, max_messages=10, connect=connect_to(FakeWS([])), now=lambda: t)
     assert rows[0][0] == t and rows[0][4] == t and rows[0][5] == t
+
+
+def test_malformed_frames_are_skipped_and_counted():
+    frames = [pos(1), "not json", json.dumps([1, 2]), json.dumps({"MessageType": "PositionReport", "MetaData": {"MMSI": "abc"}}), pos(2)]
+    ws = FakeWS(frames)
+    rows = collect_window("k", BBOX, seconds=0.3, max_messages=100, connect=connect_to(ws))
+    data, hb = rows[:-1], rows[-1]
+    assert [(r[1], r[2]) for r in data] == [("PositionReport", 1), ("PositionReport", 2)]
+    assert hb[6] == 2 and hb[7] == "malformed_frames=3"
+
+
+def test_malformed_count_joins_connection_error():
+    ws = FakeWS(["not json", pos(3)], close_exc=ConnectionResetError("x"))
+    rows = collect_window("k", BBOX, seconds=5, max_messages=10, connect=connect_to(ws))
+    assert rows[0][2] == 3
+    assert "ConnectionResetError" in rows[-1][7] and "; malformed_frames=1" in rows[-1][7]
+
+
+def test_server_error_raises_inside_running_loop():
+    async def main():
+        ws = FakeWS([json.dumps({"error": "Api Key Is Not Valid"})])
+        return collect_window("bad", BBOX, seconds=1, max_messages=10, connect=connect_to(ws))
+    with pytest.raises(AisStreamError, match="Not Valid"):
+        asyncio.run(main())

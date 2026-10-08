@@ -62,6 +62,7 @@ async def _collect(subscription: str, seconds: float, max_messages: int, connect
     window_start = now()
     received: list[tuple] = []
     error: Optional[str] = None
+    malformed = 0
     try:
         async with connect(WS_URL) as ws:
             await ws.send(subscription)
@@ -74,7 +75,11 @@ async def _collect(subscription: str, seconds: float, max_messages: int, connect
                     raw = await asyncio.wait_for(ws.recv(), timeout=remaining)
                 except asyncio.TimeoutError:
                     break
-                parsed = parse_message(raw)
+                try:
+                    parsed = parse_message(raw)
+                except (ValueError, UnicodeDecodeError, AttributeError, TypeError):
+                    malformed += 1
+                    continue
                 if parsed:
                     received.append((now(),) + parsed)
     except AisStreamError:
@@ -82,6 +87,9 @@ async def _collect(subscription: str, seconds: float, max_messages: int, connect
     except Exception as exc:  # connection refused/dropped: keep what we have, record why the window ended
         error = f"{type(exc).__name__}: {exc}"
     window_end = now()
+    if malformed > 0:
+        malformed_str = f"malformed_frames={malformed}"
+        error = f"{error}; {malformed_str}" if error else malformed_str
     rows = [(ts, mtype, mmsi, text, window_start, window_end, None, None) for ts, mtype, mmsi, text in received]
     rows.append((window_end, HEARTBEAT_TYPE, None, None, window_start, window_end, len(received), error))
     return rows
