@@ -3,6 +3,7 @@ resources:
     hormuz_ais_sampler:
       name: hormuz_ais_sampler
       max_concurrent_runs: 1
+      timeout_seconds: 900
       schedule:
         quartz_cron_expression: "0 5 * * * ?"
         timezone_id: UTC

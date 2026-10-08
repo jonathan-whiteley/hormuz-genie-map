@@ -16,9 +16,11 @@ per_region AS (
 SELECT
   s.sample_id, s.window_start, date_trunc('HOUR', s.window_start) AS sample_hour, s.window_seconds,
   s.total_messages, s.error,
+  (s.error IS NULL OR s.error RLIKE '^malformed_frames=[0-9]+$') AS sample_ok,
   r.region, r.role, r.label, r.area_km2,
   coalesce(p.positions, 0) AS positions,
   coalesce(p.unique_vessels, 0) AS unique_vessels,
+  coalesce(p.unique_vessels, 0) / r.area_km2 AS vessel_density,
   ROUND(coalesce(p.unique_vessels, 0) * 10000.0 / r.area_km2, 3) AS vessels_per_10k_km2,
   ROUND(coalesce(p.positions, 0) * 60.0 / NULLIF(s.window_seconds, 0), 2) AS positions_per_minute
 FROM samples s
