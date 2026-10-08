@@ -15,4 +15,4 @@ def test_text_has_no_em_or_en_dashes():
 def test_example_sql_reference_only_known_tables():
     for _, sql in EXAMPLE_SQL:
         assert "jdub_demo.hormuz." not in sql  # templated with {catalog}.{schema}
-        assert "{catalog}.{schema}." in sql
+        assert "`{catalog}`.`{schema}`." in sql

@@ -3,10 +3,11 @@ resources:
     hormuz_ais_sampler:
       name: hormuz_ais_sampler
       max_concurrent_runs: 1
-      timeout_seconds: 900
+      timeout_seconds: 2700
       schedule:
         quartz_cron_expression: "0 5 * * * ?"
         timezone_id: UTC
+        pause_status: ${var.schedule_pause_status}
       environments:
         - environment_key: sampler
           spec:
@@ -15,6 +16,7 @@ resources:
               - "websockets>=13,<17"
       tasks:
         - task_key: sample
+          timeout_seconds: 600
           environment_key: sampler
           spark_python_task:
             python_file: ../src/jobs/ais_sampler.py
@@ -30,7 +32,9 @@ resources:
               - "--seconds"
               - "300"
         - task_key: refresh_ais
+          timeout_seconds: 1800
           depends_on:
             - task_key: sample
+          timeout_seconds: 600
           pipeline_task:
             pipeline_id: ${resources.pipelines.hormuz_ais.id}

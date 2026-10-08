@@ -3,11 +3,13 @@ bundle:
 
 variables:
   catalog:
-    description: Unity Catalog catalog for all tables
-    default: jdub_demo
+    description: Unity Catalog catalog for all tables (required, no default)
   schema:
     description: Schema for all tables (create it first; see README)
     default: hormuz
+  schedule_pause_status:
+    description: PAUSED or UNPAUSED for the daily reference job and the hourly AIS sampler
+    default: PAUSED
   bbox:
     description: Region as lat_min,lon_min,lat_max,lon_max
     default: "12,32,31,62"

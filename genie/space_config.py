@@ -34,7 +34,7 @@ EXAMPLE_SQL = [
        ROUND(AVG(n_total), 1) AS avg_daily_transits,
        ROUND(AVG(n_tanker), 1) AS avg_daily_tanker_transits,
        ROUND(AVG(pct_of_baseline_total), 1) AS pct_of_prewar_baseline
-FROM {catalog}.{schema}.gold_chokepoint_daily
+FROM `{catalog}`.`{schema}`.gold_chokepoint_daily
 WHERE chokepoint = 'Strait of Hormuz' AND date >= '2026-01-01'
 GROUP BY 1 ORDER BY 1""",
     ),
@@ -44,14 +44,14 @@ GROUP BY 1 ORDER BY 1""",
        SUM(portcalls_tanker) AS tanker_port_calls,
        ROUND(SUM(export_tanker)) AS tanker_export_tonnes,
        ANY_VALUE(lat) AS lat, ANY_VALUE(lon) AS lon, ANY_VALUE(h3_res7) AS h3_res7
-FROM {catalog}.{schema}.gold_port_daily
+FROM `{catalog}`.`{schema}`.gold_port_daily
 WHERE (port IN ('Fujairah', 'Khor Fakkan') OR port LIKE 'Yanbu%') AND date >= '2026-02-28'
 GROUP BY 1, 2 ORDER BY 1, 2""",
     ),
     (
         "Chokepoint comparison, 7-day average",
         """SELECT date, chokepoint, n_total_7d_avg, pct_of_baseline_total
-FROM {catalog}.{schema}.gold_chokepoint_daily
+FROM `{catalog}`.`{schema}`.gold_chokepoint_daily
 WHERE chokepoint IN ('Strait of Hormuz', 'Bab el-Mandeb Strait', 'Suez Canal', 'Cape of Good Hope')
   AND date >= '2026-01-01'
 ORDER BY date, chokepoint""",

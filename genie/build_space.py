@@ -3,6 +3,7 @@ import argparse
 import json
 import pathlib
 import subprocess
+import sys
 
 from genie.space_config import EXAMPLE_SQL, INSTRUCTIONS, SAMPLE_QUESTIONS, table_identifiers
 
@@ -38,16 +39,20 @@ def serialized_space(catalog: str, schema: str) -> dict:
     }
 
 
-def _cli(profile: str, *args: str) -> dict:
-    out = subprocess.run(["databricks", "--profile", profile, *args, "-o", "json"],
-                         check=True, capture_output=True, text=True).stdout
-    return json.loads(out) if out.strip() else {}
+def _cli(profile: str, *args: str, json_out: bool = True, hint: str = "") -> dict:
+    cmd = ["databricks", "--profile", profile, *args] + (["-o", "json"] if json_out else [])
+    try:
+        out = subprocess.run(cmd, check=True, capture_output=True, text=True).stdout
+    except subprocess.CalledProcessError as e:
+        shown = " ".join(c if len(c) < 200 else c[:200] + "..." for c in cmd)
+        sys.exit(f"Command failed: {shown}\n{e.stderr}" + (f"\n{hint}" if hint else ""))
+    return json.loads(out) if json_out and out.strip() else {}
 
 
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--profile", default="DEFAULT")
-    ap.add_argument("--catalog", default="jdub_demo")
+    ap.add_argument("--catalog", required=True)
     ap.add_argument("--schema", default="hormuz")
     ap.add_argument("--warehouse-id", required=True)
     a = ap.parse_args()
@@ -58,17 +63,19 @@ def main() -> None:
         sid = SPACE_ID_FILE.read_text().strip()
         _cli(a.profile, "genie", "update-space", sid, "--json",
              json.dumps({"title": TITLE, "description": desc, "warehouse_id": a.warehouse_id,
-                         "serialized_space": blob}))
+                         "serialized_space": blob}),
+             hint="If the space was deleted or you switched workspace, delete genie/.space_id "
+                  "and rerun to create a new space.")
     else:
         me = _cli(a.profile, "current-user", "me")["userName"]
         parent = f"/Workspace/Users/{me}/genie_spaces"
-        subprocess.run(["databricks", "--profile", a.profile, "workspace", "mkdirs", parent], check=True)
+        _cli(a.profile, "workspace", "mkdirs", parent, json_out=False)
         res = _cli(a.profile, "genie", "create-space", "--json",
                    json.dumps({"title": TITLE, "description": desc, "warehouse_id": a.warehouse_id,
                                "parent_path": parent, "serialized_space": blob}))
         sid = res["space_id"]
         SPACE_ID_FILE.write_text(sid)
-    host = _cli(a.profile, "auth", "describe").get("details", {}).get("host", "")
+    host = _cli(a.profile, "auth", "describe").get("details", {}).get("host", "").rstrip("/")
     print(f"space_id={sid}")
     print(f"url={host}/genie/rooms/{sid}")
 

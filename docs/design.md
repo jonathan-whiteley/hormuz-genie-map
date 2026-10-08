@@ -32,7 +32,7 @@ conversational UI explain the gap: dark transits, spoofing, and bypass ports.
 
 One Declarative Automation Bundle, two pipelines:
 
-1. `reference_daily` (triggered, daily job): PortWatch + land polygons, plus gold
+1. `hormuz_reference` pipeline (triggered daily by job `hormuz_reference_daily`): PortWatch + land polygons, plus gold
    tables that need no AIS (chokepoint gap vs. baseline, bypass port surge).
 2. `hormuz_ais_sampler` (hourly job): listens to aisstream.io for 5 minutes across
    target regions (Gulf/Hormuz, Red Sea) and busy control lanes (North Sea/Channel,

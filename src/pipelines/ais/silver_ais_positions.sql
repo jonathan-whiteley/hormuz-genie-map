@@ -4,7 +4,7 @@ COMMENT 'AIS position reports from the hourly samples, assigned to a sampling re
 AS
 WITH parsed AS (
   SELECT sample_id, window_start, window_end, received_at, mmsi, message_type, parse_json(payload) AS v
-  FROM ${hormuz.catalog}.${hormuz.schema}.bronze_ais_samples
+  FROM `${hormuz.catalog}`.`${hormuz.schema}`.bronze_ais_samples
   WHERE message_type IN ('PositionReport', 'StandardClassBPositionReport') AND mmsi IS NOT NULL
 ),
 pos AS (

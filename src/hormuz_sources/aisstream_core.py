@@ -22,7 +22,7 @@ ROW_SCHEMA_DDL = (
 
 
 class AisStreamError(RuntimeError):
-    """Fatal collector error (bad key, server-side error). Fails the pipeline on purpose."""
+    """Fatal collector error (bad key, server-side error). Fails the sampler job on purpose."""
 
 
 def _utcnow() -> datetime:
@@ -45,7 +45,7 @@ def _bbox_list(bbox_or_bboxes) -> list:
 def build_subscription(api_key: str, bbox, message_types=DEFAULT_MESSAGE_TYPES) -> str:
     """bbox is one (lat_min, lon_min, lat_max, lon_max) tuple or a list of them."""
     if not api_key:
-        raise AisStreamError("aisstream API key is empty; set secret hormuz/aisstream_api_key")
+        raise AisStreamError("aisstream API key is empty; check the secret scope and key passed to the sampler")
     boxes = _bbox_list(bbox)
     if not boxes:
         raise AisStreamError("at least one bounding box is required")

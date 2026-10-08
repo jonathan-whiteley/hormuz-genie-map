@@ -32,6 +32,14 @@ def sample(api_key, seconds, max_messages, collect=None):
     return sample_id, rows
 
 
+def check_sample(hb, secret_scope="<scope>", secret_key="<key>"):
+    """Raise if the heartbeat shows zero messages together with an error (bad key, connection failure)."""
+    n_messages, error = hb[6], hb[7]
+    if n_messages == 0 and error:
+        raise RuntimeError(
+            f"aisstream returned no messages: {error}. Check secret {secret_scope}/{secret_key} and aisstream status.")
+
+
 def main(argv=None):
     args = parse_args(argv)
     if args.src_path:
@@ -50,6 +58,7 @@ def main(argv=None):
         .write.mode("append").saveAsTable(table))
     hb = rows[-1]
     print(f"sample {sample_id}: {hb[6]} messages in {(hb[5] - hb[4]).total_seconds():.0f}s, error={hb[7]} -> {table}")
+    check_sample(hb, args.secret_scope, args.secret_key)
 
 
 if __name__ == "__main__":

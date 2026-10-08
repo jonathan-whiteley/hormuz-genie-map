@@ -5,7 +5,7 @@ WITH samples AS (
   SELECT sample_id, window_start, window_end,
          timestampdiff(SECOND, window_start, window_end) AS window_seconds,
          n_messages AS total_messages, error
-  FROM ${hormuz.catalog}.${hormuz.schema}.bronze_ais_samples
+  FROM `${hormuz.catalog}`.`${hormuz.schema}`.bronze_ais_samples
   WHERE message_type = '_heartbeat'
 ),
 per_region AS (
