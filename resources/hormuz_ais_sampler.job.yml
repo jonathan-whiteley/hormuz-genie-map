@@ -35,6 +35,5 @@ resources:
           timeout_seconds: 1800
           depends_on:
             - task_key: sample
-          timeout_seconds: 600
           pipeline_task:
             pipeline_id: ${resources.pipelines.hormuz_ais.id}
