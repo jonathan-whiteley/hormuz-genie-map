@@ -79,7 +79,7 @@ existing Hormuz Chokepoint Monitor space (`genie/space_config.py`). Add instruct
 - answers about places return `lat`/`lon` or `h3_res7`/`h3_res5`;
 - answers about lanes return `lane_id`.
 
-Add example SQL for the four suggested lane questions (section 5.3).
+Add example SQL for the four suggested lane questions (section 5.4).
 
 ## 4. App architecture
 
@@ -114,7 +114,7 @@ All 2026 data loads once at startup; the scrubber filters in memory.
 ## 5. Layout and story
 
 ### 5.1 Layout (desktop first, 1440 px design width)
-- **Top bar:** Databricks logo, title "The Invisible Strait: Hormuz supply lane monitor", a five-step scene stepper, a Story / Explore toggle, and a freshness badge.
+- **Top bar:** Databricks logo, title "The Invisible Strait: Hormuz supply lane monitor", tabs Story | Explore | Architecture, the five-step scene stepper (Story tab only), and a freshness badge.
 - **Left rail:**
   - layer toggles and the vessel-type filter;
   - KPI cards for the selected date: Hormuz transits (7-day avg, and pct of baseline), lanes disrupted (count of 6), volume at risk (tonnes and TEU shown separately), Gulf AIS visibility index.
@@ -138,7 +138,43 @@ All 2026 data loads once at startup; the scrubber filters in memory.
 - Event lines link to their `source_url`.
 - Wherever AIS counts appear, the text says they measure visibility, not traffic.
 
-### 5.3 Suggested Genie questions (rotated by scene)
+### 5.3 Architecture tab
+A third top-bar tab: **Story | Explore | Architecture**. It is ported from the GEOlogic app's
+`ArchitecturePage.tsx` (React Flow `@xyflow/react` canvas, `html-to-image` export, `lucide-react`
+icons): draggable nodes, Zoom In / Zoom Out / Fit / PNG / SVG controls, and a layer legend
+along the bottom. It is reskinned with the Databricks tokens.
+
+Header: "ARCHITECTURE / System Architecture / From public shipping signals to a map you can
+question, all governed by Unity Catalog. Drag nodes, scroll to zoom, export to PNG or SVG."
+
+It is focused on sources and Databricks products, with six numbered columns read left to
+right as the talk track. Each node has a title and a one-line subtitle.
+
+| # | Column | Nodes (title: subtitle) |
+|---|---|---|
+| 1 | Sources | IMF PortWatch: daily chokepoint and port activity (REST) · aisstream.io: live AIS positions (websocket, free key) · Natural Earth: land polygons · Demo lanes: synthetic supply lanes (editable) |
+| 2 | Ingest | Lakeflow Jobs: hourly 5-minute AIS sampler, daily refresh · Lakeflow SDP (Python): PortWatch and Natural Earth pulls |
+| 3 | Process | Lakeflow SDP: bronze, silver, gold materialized views · Spatial SQL: H3 res 5 and 7, ST functions |
+| 4 | Govern | Unity Catalog: Delta tables, lineage, on-behalf-of-user access |
+| 5 | Intelligence | AI/BI Genie: Hormuz Chokepoint Monitor space · Databricks SQL: serverless warehouse |
+| 6 | Serve | Databricks App: AppKit + React + deck.gl map |
+
+Edges, labeled where useful:
+- Sources to Ingest: "REST, daily" (PortWatch, Natural Earth) and "websocket, 5 min each hour" (aisstream).
+- Demo lanes go directly to Process.
+- Ingest to Process.
+- Process to Unity Catalog.
+- Unity Catalog to Genie and to Databricks SQL.
+- Genie and Databricks SQL to the App, labeled "answers" and "map queries".
+
+Clicking a node opens a small detail popover with the real resource names, for example
+`hormuz_reference`, `hormuz_ais_sampler`, `gold_lane_status`, and the Genie space title. It also
+shows one talk-track sentence. The legend colors each Databricks product (Lakeflow Jobs,
+Lakeflow SDP, Spatial SQL, Unity Catalog, Genie, Databricks SQL, Databricks App) plus Sources
+in neutral gray, using a palette derived from the Databricks tokens. Only the real logo appears
+in the top bar.
+
+### 5.4 Suggested Genie questions (rotated by scene)
 1. Which of our lanes are disrupted today, and how much volume is at risk?
 2. Which alternative ports are running above their pre-war baseline?
 3. When did our container lane shift away from Jebel Ali?
@@ -182,7 +218,7 @@ The layer is named after the question.
   - L4's status matches its `primary_pct` and `alternative_pct`.
 - **End to end:**
   - run locally against DEFAULT;
-  - Chrome DevTools screenshots of all 5 scenes and of one Genie answer rendered as a map layer;
+  - Chrome DevTools screenshots of all 5 scenes, of one Genie answer rendered as a map layer, and of the Architecture tab (Fit view, PNG export downloads);
   - no console errors.
 - **Deploy:**
   - follow the saved Apps gotchas (fixed app name, `apps update` resources before deploy if needed, Genie space ACL);
