@@ -5,7 +5,7 @@ import pathlib
 import subprocess
 import sys
 
-from genie.space_config import EXAMPLE_SQL, INSTRUCTIONS, SAMPLE_QUESTIONS, table_identifiers
+from genie.space_config import TABLES, SAMPLE_QUESTIONS, examples_for, instructions_for, table_identifiers
 
 TITLE = "Hormuz Chokepoint Monitor"
 SPACE_ID_FILE = pathlib.Path(__file__).resolve().parent / ".space_id"
@@ -16,7 +16,8 @@ def _lines(text: str) -> list[str]:
     return [p + "\n" for p in parts[:-1]] + [parts[-1]]
 
 
-def serialized_space(catalog: str, schema: str) -> dict:
+def serialized_space(catalog: str, schema: str, missing: frozenset[str] = frozenset()) -> dict:
+    """The space definition; tables in `missing` (and the examples and instructions that use them) are left out."""
     return {
         "version": 2,
         "config": {
@@ -24,7 +25,7 @@ def serialized_space(catalog: str, schema: str) -> dict:
                 {"id": f"1{i:031x}", "question": [q]} for i, q in enumerate(SAMPLE_QUESTIONS, 1)
             ]
         },
-        "data_sources": {"tables": [{"identifier": t} for t in sorted(table_identifiers(catalog, schema))]},
+        "data_sources": {"tables": [{"identifier": t} for t in sorted(table_identifiers(catalog, schema, missing))]},
         "instructions": {
             "example_question_sqls": [
                 {
@@ -32,9 +33,9 @@ def serialized_space(catalog: str, schema: str) -> dict:
                     "question": [q],
                     "sql": _lines(sql.format(catalog=catalog, schema=schema)),
                 }
-                for i, (q, sql) in enumerate(EXAMPLE_SQL, 1)
+                for i, (q, sql) in enumerate(examples_for(missing), 1)
             ],
-            "text_instructions": [{"id": f"3{1:031x}", "content": _lines(INSTRUCTIONS)}],
+            "text_instructions": [{"id": f"3{1:031x}", "content": _lines(instructions_for(missing))}],
         },
     }
 
@@ -49,6 +50,17 @@ def _cli(profile: str, *args: str, json_out: bool = True, hint: str = "") -> dic
     return json.loads(out) if json_out and out.strip() else {}
 
 
+def missing_tables(profile: str, catalog: str, schema: str) -> frozenset[str]:
+    """Tables in TABLES that do not exist yet, for example gold_lane_recommendation without ai_decide."""
+    gone = set()
+    for t in TABLES:
+        res = _cli(profile, "tables", "exists", f"{catalog}.{schema}.{t}",
+                   hint="Check that the profile can browse the catalog and schema.")
+        if not res.get("table_exists", False):
+            gone.add(t)
+    return frozenset(gone)
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--profile", default="DEFAULT")
@@ -57,7 +69,13 @@ def main() -> None:
     ap.add_argument("--warehouse-id", required=True)
     a = ap.parse_args()
 
-    blob = json.dumps(serialized_space(a.catalog, a.schema))
+    missing = missing_tables(a.profile, a.catalog, a.schema)
+    if missing == frozenset(TABLES):
+        sys.exit(f"No Hormuz tables found in {a.catalog}.{a.schema}. Run the hormuz_reference pipeline first.")
+    if missing:
+        print("Leaving out tables that do not exist yet (and their examples): " + ", ".join(sorted(missing)))
+        print("Rerun this script after they are created to add them to the space.")
+    blob = json.dumps(serialized_space(a.catalog, a.schema, missing))
     desc = "Shipping through the Strait of Hormuz and nearby chokepoints and ports (IMF PortWatch, AIS-visible)."
     if SPACE_ID_FILE.exists():
         sid = SPACE_ID_FILE.read_text().strip()

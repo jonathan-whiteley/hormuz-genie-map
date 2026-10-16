@@ -53,3 +53,10 @@ Pre-war baseline window: 2026-01-01 to 2026-02-27 (war began 2026-02-28).
 Gold tables that need AIS pings (dark-gap pairing, on-land positions, STS
 transfers), the deck.gl + Genie app. Those get their own plan once AIS data is
 flowing and coverage in the Gulf is measured.
+
+## App
+
+The map app is specified in `docs/superpowers/specs/2026-10-09-hormuz-map-app-design.md`
+and built in `app/` (AppKit). It deploys with the same bundle as the app resource
+`resources/hormuz_app.app.yml` and queries the gold tables as the viewer. See the README
+App section for deploy commands and permissions.

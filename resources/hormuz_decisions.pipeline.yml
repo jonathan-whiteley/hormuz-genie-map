@@ -1,0 +1,15 @@
+resources:
+  pipelines:
+    hormuz_decisions:
+      name: hormuz_decisions
+      catalog: ${var.catalog}
+      schema: ${var.schema}
+      serverless: true
+      channel: CURRENT
+      root_path: ../src
+      libraries:
+        - glob:
+            include: ../src/pipelines/decisions/**
+      configuration:
+        hormuz.catalog: ${var.catalog}
+        hormuz.schema: ${var.schema}

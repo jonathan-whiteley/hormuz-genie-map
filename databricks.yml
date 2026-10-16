@@ -16,9 +16,20 @@ variables:
   secret_scope:
     description: Secret scope holding the aisstream.io key
     default: hormuz
+  warehouse_id:
+    description: SQL warehouse for the app
+  genie_space_id:
+    description: Genie space id printed by genie/build_space.py; the placeholder none leaves Genie off (first deploy)
+    default: none
 
 include:
   - resources/*.yml
+
+sync:
+  exclude:
+    - "app/node_modules/**"
+    - "app/dist/**"
+    - "app/client/dist/**"
 
 targets:
   demo:

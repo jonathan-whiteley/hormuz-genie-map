@@ -1,0 +1,23 @@
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
+import { describe, expect, it } from 'vitest';
+
+const sql = (name: string) => readFileSync(path.resolve(__dirname, '../../../../config/queries', `${name}.obo.sql`), 'utf8');
+
+describe('chokepoints_daily', () => {
+  it('computes every percent of baseline from the 7-day average', () => {
+    const q = sql('chokepoints_daily');
+    for (const v of ['total', 'tanker', 'container', 'dry_bulk']) {
+      expect(q).toContain(`ROUND(100 * n_${v}_7d_avg / NULLIF(baseline_${v}, 0), 1) AS pct_of_baseline_${v}`);
+    }
+  });
+});
+
+describe('AIS queries stay under the 5 MB per-event cap', () => {
+  it('ais_h3_daily keeps the last 30 days', () => {
+    expect(sql('ais_h3_daily')).toMatch(/WHERE day >= date_sub\(current_date\(\), 30\)/);
+  });
+  it('ais_visibility keeps the last 30 days', () => {
+    expect(sql('ais_visibility')).toMatch(/WHERE sample_hour >= current_timestamp\(\) - INTERVAL 30 DAYS/);
+  });
+});

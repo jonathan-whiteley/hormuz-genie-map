@@ -1,0 +1,34 @@
+@font-face { font-family: 'DM Sans'; font-weight: 400; font-display: swap; src: url('../assets/dm-sans-regular.ttf') format('truetype'); }
+@font-face { font-family: 'DM Sans'; font-weight: 500; font-display: swap; src: url('../assets/dm-sans-medium.ttf') format('truetype'); }
+@font-face { font-family: 'DM Sans'; font-weight: 700; font-display: swap; src: url('../assets/dm-sans-bold.ttf') format('truetype'); }
+
+:root {
+  --lava-600: #FF3621;
+  --navy-900: #0B2026;
+  --light: #F9F7F4;
+  --font-sans: 'DM Sans', system-ui, sans-serif;
+
+  /* Warm neutrals */
+  --gray-100: #EEEDE9;
+  --gray-300: #DCDAD4;
+  --gray-500: #8A9094;
+  --gray-700: #4A5A62;
+  --white: #FFFFFF;
+
+  --space-1: 0.5rem;
+  --space-2: 1rem;
+  --space-3: 1.5rem;
+  --space-4: 2rem;
+}
+
+* { box-sizing: border-box; }
+html, body, #root { height: 100%; margin: 0; }
+body {
+  font-family: var(--font-sans);
+  font-size: 1rem;
+  background: var(--light);
+  color: var(--navy-900);
+  -webkit-font-smoothing: antialiased;
+}
+button { font-family: inherit; }
+:focus-visible { outline: 2px solid var(--navy-900); outline-offset: 2px; }

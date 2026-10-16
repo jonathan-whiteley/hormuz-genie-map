@@ -1,0 +1,28 @@
+resources:
+  apps:
+    hormuz_map:
+      name: hormuz-map
+      description: "The Invisible Strait: Hormuz supply lane monitor"
+      source_code_path: ../app
+      user_api_scopes:
+        - sql
+        - dashboards.genie
+      resources:
+        - name: sql-warehouse
+          sql_warehouse:
+            id: ${var.warehouse_id}
+            permission: CAN_USE
+      config:
+        env:
+          - name: DATABRICKS_WAREHOUSE_ID
+            value_from: sql-warehouse
+          # Genie runs on behalf of the viewer, so the app service principal needs no Genie grant. The
+          # placeholder none (the default) leaves Genie off until a real space id is passed.
+          - name: DATABRICKS_GENIE_SPACE_ID
+            value: ${var.genie_space_id}
+          - name: HORMUZ_CATALOG
+            value: ${var.catalog}
+          - name: HORMUZ_SCHEMA
+            value: ${var.schema}
+          - name: GENIE_SPACE_TITLE
+            value: Hormuz Chokepoint Monitor

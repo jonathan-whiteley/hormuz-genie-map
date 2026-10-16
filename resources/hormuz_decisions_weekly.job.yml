@@ -1,0 +1,13 @@
+resources:
+  jobs:
+    hormuz_decisions_weekly:
+      name: hormuz_decisions_weekly
+      timeout_seconds: 1800
+      schedule:
+        quartz_cron_expression: "0 0 8 ? * MON"
+        timezone_id: UTC
+        pause_status: ${var.schedule_pause_status}
+      tasks:
+        - task_key: refresh_decisions
+          pipeline_task:
+            pipeline_id: ${resources.pipelines.hormuz_decisions.id}

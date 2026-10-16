@@ -71,6 +71,47 @@ One row per lane per date in 2026, using 7-day averages for the lane's vessel ty
 
 Every count is AIS-visible only; the comment says so.
 
+### 3.5 Decision layer: `gold_lane_recommendation` (optional, ai_decide)
+`ai_decide` (Beta; enabled in DEFAULT on 2026-10-09) adds a calibrated recommendation per lane on
+**weekly snapshot dates**: every Monday from 2026-02-02 plus the latest data date. That is about 37 dates × 6 lanes,
+or about 220 calls per run. It follows the Jev cookbook (github.com/paramjeetn/jev-cookbook):
+- SQL does all the numbers and dates;
+- `ai_decide` only classifies a plain-language description;
+- code composes the result.
+
+**State** (prose, built in SQL from bands, never raw numbers or JSON):
+- the lane and vessel type;
+- the primary port band: "far below / well below / below / near / above / well above pre-war levels", plus a 14-day trend "falling / steady / rising";
+- each alternative port's band, with "on a very small baseline" when the baseline is under 1 call per day;
+- the Hormuz band for the vessel type;
+- the latest conflict event on or before the date;
+- the Gulf AIS visibility band ("very low / low / moderate / not measured").
+
+**Questions** (constant JSON, one call per row):
+- `situation`, a choice: acute_closure, sustained_closure, partial_recovery, normal, none_fit.
+- `action`, a choice: hold, shift, buffer, escalate, none_fit.
+- `shift_target`, a speculative choice: Yanbu (King Fahd Port), Fujairah, Khor Fakkan, Port of Sohar, Salalah, Jeddah, not_applicable.
+- `signal_quality`, a score: clear and consistent; mixed with caveats; thin or contradictory.
+
+**Composition in SQL** (the cookbook's patterns 2, 3, 4, 6, 8). The tier is decided by the first rule that applies:
+1. *Novel situation* when `action` = none_fit or the top action probability is below 0.40.
+2. *Analyst* when `signal_quality.score >= 1.5`.
+3. *Recommended* when `action.confidence >= 0.90`.
+4. *Review* when the confidence is 0.60 or more.
+5. Otherwise *Analyst*.
+
+These are untuned demo thresholds (the cookbook's starting point) and are labeled so in the app and README.
+
+**Output columns:** date, lane_id, state_text, action, action_probabilities, action_confidence, shift_target, situation, signal_quality_score, tier, and the raw ai_decide VARIANT.
+
+**State tracking:** every snapshot is classified independently, so the app can plot the tier and P(action) weekly.
+
+**Optional and lightweight:** it runs in a separate small pipeline `hormuz_decisions` on its own **weekly**
+job `hormuz_decisions_weekly` (Mondays 08:00 UTC, using `schedule_pause_status`), so a workspace without
+ai_decide only fails that job. The app treats a
+missing table as "feature off" and hides recommendation UI (no error banner for this query).
+Cost: about 220 calls per weekly run, billed at Databricks SQL rates.
+
 ### 3.4 Genie space update
 Add `ref_demo_lanes`, `gold_lane_status`, `gold_ais_visibility_index`, `ref_ais_regions` to the
 existing Hormuz Chokepoint Monitor space (`genie/space_config.py`). Add instructions:
@@ -132,6 +173,11 @@ All 2026 data loads once at startup; the scrubber filters in memory.
 | 4 | Lanes with no way around | latest date | Gulf | L3 and L6 highlighted, primary ports |
 | 5 | What you cannot see | latest AIS sample | all 5 sampling regions | AIS hexes, region boxes, Yanbu marker |
 
+**Recommendation UI** (only when `gold_lane_recommendation` loads):
+- Scene 3 and 4 cards, and the lane tooltips, show a chip with the tier, the action, and a small bar of action probabilities. The chip notes "untuned demo thresholds".
+- Selecting a lane in the left rail shows a sparkline of P(top action) since January, with tier color bands, linked to the scrubber.
+- Named query `lane_recommendation` (optional).
+
 **Copy rule:** scene text is a template, and every number comes from the loaded data at runtime.
 - Example: "Hormuz carried {n} visible container transits a day, {pct}% of the pre-war baseline."
 - If a claim's condition is false on the data, the template takes its alternate wording. For example, scene 3 says "no alternative port is above baseline yet" when that is true.
@@ -156,7 +202,7 @@ right as the talk track. Each node has a title and a one-line subtitle.
 | 2 | Ingest | Lakeflow Jobs: hourly 5-minute AIS sampler, daily refresh · Lakeflow SDP (Python): PortWatch and Natural Earth pulls |
 | 3 | Process | Lakeflow SDP: bronze, silver, gold materialized views · Spatial SQL: H3 res 5 and 7, ST functions |
 | 4 | Govern | Unity Catalog: Delta tables, lineage, on-behalf-of-user access |
-| 5 | Intelligence | AI/BI Genie: Hormuz Chokepoint Monitor space · Databricks SQL: serverless warehouse |
+| 5 | Intelligence | AI/BI Genie: Hormuz Chokepoint Monitor space · Databricks SQL: serverless warehouse · AI Functions: ai_decide lane recommendations |
 | 6 | Serve | Databricks App: AppKit + React + deck.gl map |
 
 Edges, labeled where useful:
