@@ -1,4 +1,4 @@
-import type { ChokepointDay, LaneDay, LaneRec, VesselType, VisibilityPoint } from './types';
+import type { ChokepointDay, LaneDay, VesselType, VisibilityPoint } from './types';
 
 /** Latest row whose date is on or before `date` (ISO YYYY-MM-DD strings compare lexicographically). */
 export function latestOnOrBefore<T extends { date: string }>(rows: T[], date: string): T | undefined {
@@ -92,28 +92,4 @@ export function gulfVisibility(points: VisibilityPoint[], date: string): number 
     }
   }
   return best?.visibility_vs_control ?? null;
-}
-
-export function recOn(recs: LaneRec[], laneId: string, date: string): LaneRec | undefined {
-  return latestOnOrBefore(
-    recs.filter((r) => r.lane_id === laneId),
-    date
-  );
-}
-
-/**
- * Which lanes contribute to volume at risk. volume_at_risk is annual volume times the primary
- * port shortfall, so a Normal or Degraded lane running slightly under baseline also contributes.
- */
-export function riskSources(lanes: LaneDay[]): string {
-  const by = new Map<string, number>();
-  for (const l of lanes) {
-    if (l.volume_at_risk == null || Number.isNaN(l.volume_at_risk) || l.volume_at_risk <= 0) continue;
-    by.set(l.status, (by.get(l.status) ?? 0) + 1);
-  }
-  const n = [...by.values()].reduce((a, b) => a + b, 0);
-  if (n === 0) return 'no lane shortfall';
-  if (by.size === 1) return `from ${n} ${[...by.keys()][0]} lane${n === 1 ? '' : 's'}`;
-  const parts = [...by.entries()].sort((a, b) => b[1] - a[1]).map(([s, c]) => `${c} ${s}`);
-  return `from ${n} lanes: ${parts.join(', ')}`;
 }

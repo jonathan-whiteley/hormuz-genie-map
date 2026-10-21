@@ -1,16 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import type { GenieAnswer } from '../genieClient';
 import {
-  MAX_GENIE_LAYERS,
   MAX_LAYER_ROWS,
   cellText,
+  dateColumn,
   detect,
   genieQuestionFor,
-  mapLayersOf,
   mapRowsCaption,
-  turnOn,
-  type GenieEntry,
+  nameColumn,
 } from '../genieLayer';
+import type { Gazetteer } from '../places';
 
 const answer = (columns: string[], rows: Record<string, unknown>[], totalRows = rows.length): GenieAnswer => ({
   columns,
@@ -48,25 +47,54 @@ describe('detect', () => {
     expect(spec?.kind === 'h3' && spec.rows[0].h3).toBe('85283473fffffff');
   });
 
-  it('an h3_resolution column with no valid ids falls through to lat/lon', () => {
-    const spec = detect(
-      answer(['h3_resolution', 'lat', 'lon', 'n'], [{ h3_resolution: '5', lat: '25', lon: '55', n: '3' }])
-    );
-    expect(spec).toMatchObject({ kind: 'points', latField: 'lat', lonField: 'lon', valueField: 'n' });
+  it('an h3_resolution column with no valid ids falls through to the lane rule', () => {
+    const spec = detect(answer(['h3_resolution', 'lane_id'], [{ h3_resolution: '5', lane_id: 'L1' }]));
+    expect(spec).toEqual({ kind: 'lanes', laneIds: ['L1'] });
   });
 
   it('an h3 column of junk with no other geo columns is table only', () => {
     expect(detect(answer(['h3_res5', 'n'], [{ h3_res5: 'abc', n: 1 }]))).toBeNull();
   });
 
-  it('the h3 value field skips coordinates and other h3 columns', () => {
+  it('the h3 value field skips other h3 columns', () => {
     const spec = detect(
       answer(
-        ['h3_res5', 'h3_res7', 'lat', 'lon', 'vessels'],
-        [{ h3_res5: '85283473fffffff', h3_res7: '87283472bffffff', lat: '25', lon: '55', vessels: '9' }]
+        ['h3_res5', 'h3_res7', 'vessels'],
+        [{ h3_res5: '85283473fffffff', h3_res7: '87283472bffffff', vessels: '9' }]
       )
     );
     expect(spec).toMatchObject({ kind: 'h3', hexField: 'h3_res5', valueField: 'vessels' });
+  });
+
+  it('lat/lon points win over a valid h3_res7 column, named by the port column', () => {
+    const spec = detect(
+      answer(
+        ['port', 'lat', 'lon', 'h3_res7', 'calls'],
+        [{ port: 'Fujairah', lat: '25.1', lon: '56.3', h3_res7: '87283472bffffff', calls: '12' }]
+      )
+    );
+    expect(spec).toMatchObject({
+      kind: 'points',
+      latField: 'lat',
+      lonField: 'lon',
+      nameField: 'port',
+      valueField: 'calls',
+    });
+  });
+
+  it('an h3 column before the port column is never taken as the point name', () => {
+    const spec = detect(
+      answer(
+        ['h3_res7', 'port', 'lat', 'lon'],
+        [{ h3_res7: '87283472bffffff', port: 'Fujairah', lat: '25', lon: '56' }]
+      )
+    );
+    expect(spec).toMatchObject({ kind: 'points', nameField: 'port' });
+  });
+
+  it('an h3-only answer (no lat/lon) still draws cells', () => {
+    const spec = detect(answer(['h3_res5', 'visibility'], [{ h3_res5: '85283473fffffff', visibility: '0.4' }]));
+    expect(spec).toMatchObject({ kind: 'h3', hexField: 'h3_res5', valueField: 'visibility' });
   });
 
   it('matches a column ending in _h3', () => {
@@ -139,29 +167,6 @@ describe('detect', () => {
   });
 });
 
-describe('turnOn', () => {
-  const entry = (id: string, on: boolean): GenieEntry => ({
-    id,
-    question: id,
-    loading: false,
-    spec: { kind: 'lanes', laneIds: ['L1'] },
-    on,
-  });
-
-  it('turning on a sixth layer turns off the oldest', () => {
-    // Newest first: q5 is newest of the five on, q0 is the oldest.
-    const entries = [entry('q6', false), ...[5, 4, 3, 2, 1].map((n) => entry(`q${n}`, true)), entry('q0', false)];
-    const next = turnOn(entries, 'q6');
-    expect(next.filter((e) => e.on).map((e) => e.id)).toEqual(['q6', 'q5', 'q4', 'q3', 'q2']);
-    expect(MAX_GENIE_LAYERS).toBe(5);
-  });
-
-  it('turning on an old entry under the cap leaves the others on', () => {
-    const next = turnOn([entry('q2', true), entry('q1', false)], 'q1');
-    expect(next.map((e) => e.on)).toEqual([true, true]);
-  });
-});
-
 describe('cellText', () => {
   it('shows missing values as no data and keeps a real 0', () => {
     expect(cellText(null)).toBe('no data');
@@ -180,35 +185,6 @@ describe('genieQuestionFor', () => {
   });
 });
 
-describe('mapLayersOf', () => {
-  const e = (id: string, on: boolean, spec: GenieEntry['spec']): GenieEntry => ({
-    id,
-    question: `Q ${id}`,
-    loading: false,
-    spec,
-    on,
-  });
-  const pts = { kind: 'points' as const, latField: 'lat', lonField: 'lon', rows: [] };
-
-  it('keeps each entry id as its layer id, with the question as title, for on entries only', () => {
-    const one = mapLayersOf([e('genie-1', true, pts)]);
-    const two = mapLayersOf([
-      e('genie-2', true, { kind: 'lanes', laneIds: ['L1'] }),
-      e('genie-1', true, pts),
-      e('genie-0', false, pts),
-    ]);
-    expect(one.map((l) => l.id)).toEqual(['genie-1']);
-    expect(two.map((l) => [l.id, l.title])).toEqual([
-      ['genie-2', 'Q genie-2'],
-      ['genie-1', 'Q genie-1'],
-    ]);
-  });
-
-  it('skips entries without a spec', () => {
-    expect(mapLayersOf([e('genie-1', true, null)])).toEqual([]);
-  });
-});
-
 describe('mapRowsCaption', () => {
   const rows = (n: number) => Array.from({ length: n }, () => ({ lat: 1, lon: 2 }));
   it('says how many rows the map shows when the layer is capped', () => {
@@ -220,5 +196,70 @@ describe('mapRowsCaption', () => {
     expect(mapRowsCaption({ kind: 'points', latField: 'lat', lonField: 'lon', rows: rows(2) }, 2)).toBeNull();
     expect(mapRowsCaption({ kind: 'lanes', laneIds: ['L1'] }, 9000)).toBeNull();
     expect(mapRowsCaption(null, 9000)).toBeNull();
+  });
+});
+
+describe('nameColumn', () => {
+  const G: Gazetteer = new Map([
+    ['fujairah', { name: 'Fujairah', kind: 'port', lat: 25.1, lon: 56.3 }],
+    ['hormuz', { name: 'Strait of Hormuz', kind: 'chokepoint', lat: 26.3, lon: 56.9 }],
+  ]);
+
+  it('skips ISO date and timestamp columns', () => {
+    const rows = [
+      { week: '2026-03-02', ts: '2026-03-02T00:00:00.000Z', port: 'Fujairah' },
+      { week: '2026-03-09', ts: '2026-03-09 00:00:00', port: 'Khor Fakkan' },
+    ];
+    expect(nameColumn(['week', 'ts', 'port'], rows, [])).toBe('port');
+  });
+
+  it('skips lane_id and other columns named *_id', () => {
+    const rows = [{ lane_id: 'L1', vessel_id: 'V9', port: 'Fujairah' }];
+    expect(nameColumn(['lane_id', 'vessel_id', 'port'], rows, [])).toBe('port');
+  });
+
+  it('prefers the column whose values match the gazetteer', () => {
+    const rows = [
+      { country: 'UAE', place: 'Fujairah' },
+      { country: 'Iran', place: 'Strait of Hormuz' },
+    ];
+    expect(nameColumn(['country', 'place'], rows, [], G)).toBe('place');
+    expect(nameColumn(['country', 'place'], rows, [])).toBe('country');
+  });
+});
+
+describe('dateColumn', () => {
+  it('finds the first column of ISO dates or timestamps', () => {
+    const rows = [{ port: 'a', d: '2026-03-02', n: 1 }];
+    expect(dateColumn(['port', 'd', 'n'], rows)).toBe('d');
+    expect(dateColumn(['port', 'n'], rows)).toBeUndefined();
+  });
+});
+
+describe('detect names lat/lon points', () => {
+  it('by the port column when a date column comes first', () => {
+    const spec = detect(
+      answer(
+        ['week', 'port', 'tanker_port_calls', 'lat', 'lon'],
+        [{ week: '2026-03-02', port: 'Fujairah', tanker_port_calls: '9', lat: '25.1', lon: '56.3' }]
+      )
+    );
+    expect(spec).toMatchObject({ kind: 'points', nameField: 'port' });
+  });
+
+  it('by the port column when lane_id comes first', () => {
+    const spec = detect(
+      answer(['lane_id', 'port', 'lat', 'lon'], [{ lane_id: 'L1', port: 'Fujairah', lat: '25.1', lon: '56.3' }])
+    );
+    expect(spec).toMatchObject({ kind: 'points', nameField: 'port' });
+  });
+
+  it('by the gazetteer-matching column when places are loaded', () => {
+    const G: Gazetteer = new Map([['fujairah', { name: 'Fujairah', kind: 'port', lat: 25.1, lon: 56.3 }]]);
+    const spec = detect(
+      answer(['country', 'site', 'lat', 'lon'], [{ country: 'UAE', site: 'Fujairah', lat: '25.1', lon: '56.3' }]),
+      G
+    );
+    expect(spec).toMatchObject({ kind: 'points', nameField: 'site' });
   });
 });

@@ -130,3 +130,27 @@ describe('ask', () => {
     expect(a.error).toBe('Query failed');
   });
 });
+
+describe('ask onStatus', () => {
+  beforeEach(() => {
+    connectSSE.mockReset();
+  });
+
+  it('reports each status event to the caller', async () => {
+    connectSSE.mockImplementation((o: Opts) => {
+      emit(
+        o,
+        START,
+        { type: 'status', status: 'ASKING_AI' },
+        { type: 'status', status: 'EXECUTING_QUERY' },
+        RESULT,
+        QUERY
+      );
+      return Promise.resolve();
+    });
+    const seen: string[] = [];
+    const a = await ask('Which ports?', undefined, { onStatus: (s) => seen.push(s) });
+    expect(seen).toEqual(['ASKING_AI', 'EXECUTING_QUERY']);
+    expect(a.error).toBeUndefined();
+  });
+});

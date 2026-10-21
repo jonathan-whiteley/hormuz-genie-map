@@ -8,12 +8,10 @@ import {
   lanesOn,
   latestOnOrBefore,
   noDataCount,
-  recOn,
   riskPhrase,
   volumeAtRisk,
-  riskSources,
 } from '../kpi';
-import type { ChokepointDay, LaneDay, LaneRec, VisibilityPoint } from '../types';
+import type { ChokepointDay, LaneDay, VisibilityPoint } from '../types';
 
 const lane = (o: Partial<LaneDay>): LaneDay =>
   ({
@@ -114,34 +112,5 @@ describe('gulfVisibility', () => {
       { region: 'red_sea', sample_hour: '2026-10-01T22:00:00.000Z', visibility_vs_control: 0.9 },
     ] as VisibilityPoint[];
     expect(gulfVisibility(pts, '2026-10-01')).toBe(0.2);
-  });
-});
-
-describe('recOn', () => {
-  const recs = [
-    { date: '2026-03-01', lane_id: 'L1', action: 'buffer' },
-    { date: '2026-03-03', lane_id: 'L1', action: 'shift' },
-    { date: '2026-03-02', lane_id: 'L2', action: 'hold' },
-  ] as LaneRec[];
-  it('previous day when exact missing', () => expect(recOn(recs, 'L1', '2026-03-02')?.action).toBe('buffer'));
-  it('exact day', () => expect(recOn(recs, 'L1', '2026-03-03')?.action).toBe('shift'));
-  it('per lane', () => expect(recOn(recs, 'L2', '2026-03-01')).toBeUndefined());
-});
-
-describe('riskSources', () => {
-  it('names the contributing lanes by status', () => {
-    expect(
-      riskSources([lane({ status: 'Normal', volume_at_risk: 45 }), lane({ status: 'Normal', volume_at_risk: 0 })])
-    ).toBe('from 1 Normal lane');
-    expect(
-      riskSources([
-        lane({ status: 'Disrupted', volume_at_risk: 10 }),
-        lane({ status: 'Disrupted', volume_at_risk: 5 }),
-        lane({ status: 'Shifted to alternative', volume_at_risk: 3 }),
-      ])
-    ).toBe('from 3 lanes: 2 Disrupted, 1 Shifted to alternative');
-  });
-  it('says so when nothing is at risk', () => {
-    expect(riskSources([lane({ volume_at_risk: null })])).toBe('no lane shortfall');
   });
 });

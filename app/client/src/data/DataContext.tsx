@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useAnalyticsQuery } from '@databricks/appkit-ui/react';
 import { sql } from '@databricks/appkit-ui/js';
 import { useAppConfig } from '../lib/appConfig';
@@ -25,7 +25,7 @@ interface Slot {
  * AppKit request store). Once all settle, loadAll assembles the Dataset exactly once,
  * using a runQuery that reads the settled hook results.
  */
-function DataLoader({ catalog, schema, children }: { catalog: string; schema: string; children: ReactNode }) {
+function DataLoader({ catalog, schema, onData }: { catalog: string; schema: string; onData: (d: Dataset) => void }) {
   const p = { catalog: sql.string(catalog), schema: sql.string(schema) };
   const slots: Record<string, Slot> = {
     chokepoints_daily: useAnalyticsQuery('chokepoints_daily', p),
@@ -43,30 +43,32 @@ function DataLoader({ catalog, schema, children }: { catalog: string; schema: st
 
   // A hook reports loading=false with data=null before its request starts, so require a result or an error.
   const settled = Object.values(slots).every((s) => !s.loading && (s.data !== null || !!s.error));
-  const [dataset, setDataset] = useState<Dataset | null>(null);
+  const started = useRef(false);
 
   useEffect(() => {
-    if (!settled || dataset) return;
+    if (!settled || started.current) return;
+    started.current = true;
     const runQuery = async (name: string): Promise<unknown[]> => {
       const s = slots[name];
       if (s.error) throw new Error(s.error);
       return s.data ?? [];
     };
-    loadAll(runQuery, { catalog, schema }).then(setDataset);
+    loadAll(runQuery, { catalog, schema }).then(onData);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [settled]);
 
-  const value = useMemo<DataState>(() => ({ dataset: dataset ?? emptyDataset(), loading: !dataset }), [dataset]);
-  return <DataCtx.Provider value={value}>{children}</DataCtx.Provider>;
+  return null;
 }
 
 export function DataProvider({ children }: { children: ReactNode }) {
   const config = useAppConfig();
-  if (!config)
-    return <DataCtx.Provider value={{ dataset: emptyDataset(), loading: true }}>{children}</DataCtx.Provider>;
+  const [dataset, setDataset] = useState<Dataset | null>(null);
+  const value = useMemo<DataState>(() => ({ dataset: dataset ?? emptyDataset(), loading: !dataset }), [dataset]);
+  // The loader sits beside the children, so the map and chat do not remount when the config arrives.
   return (
-    <DataLoader catalog={config.catalog} schema={config.schema}>
+    <DataCtx.Provider value={value}>
+      {config && <DataLoader catalog={config.catalog} schema={config.schema} onData={setDataset} />}
       {children}
-    </DataLoader>
+    </DataCtx.Provider>
   );
 }

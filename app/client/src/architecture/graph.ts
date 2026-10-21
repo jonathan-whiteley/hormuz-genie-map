@@ -182,7 +182,7 @@ export const NODES: ArchNode[] = [
     layer: 'app',
     detail: {
       resources: ['hormuz-map'],
-      talk: 'This app serves the map, the story and the Genie panel from one place, with no data copied out of Databricks.',
+      talk: 'This app serves the map and the Genie chat from one place, with no data copied out of Databricks.',
     },
   },
 ];

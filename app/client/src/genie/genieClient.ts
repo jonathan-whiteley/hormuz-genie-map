@@ -93,7 +93,12 @@ function reducer() {
   return { answer, onEvent };
 }
 
-async function attempt(question: string, conversationId?: string): Promise<GenieAnswer> {
+export interface AskOptions {
+  /** Called with each Genie status code (for example 'ASKING_AI', 'EXECUTING_QUERY') while the answer streams. */
+  onStatus?: (status: string) => void;
+}
+
+async function attempt(question: string, conversationId: string | undefined, opts: AskOptions): Promise<GenieAnswer> {
   const { answer, onEvent } = reducer();
   let connectionError: string | undefined;
   try {
@@ -104,7 +109,9 @@ async function attempt(question: string, conversationId?: string): Promise<Genie
       maxRetries: 0,
       onMessage: (message) => {
         try {
-          onEvent(JSON.parse(message.data) as GenieEvent);
+          const e = JSON.parse(message.data) as GenieEvent;
+          if (e.type === 'status') opts.onStatus?.(e.status);
+          onEvent(e);
         } catch {
           // Ignore malformed events, as useGenieChat does.
         }
@@ -122,10 +129,10 @@ async function attempt(question: string, conversationId?: string): Promise<Genie
 }
 
 /** Asks the default Genie space a question. Retries once on an error event or a connection failure. */
-export async function ask(question: string, conversationId?: string): Promise<GenieAnswer> {
-  const first = await attempt(question, conversationId);
+export async function ask(question: string, conversationId?: string, opts: AskOptions = {}): Promise<GenieAnswer> {
+  const first = await attempt(question, conversationId, opts);
   if (!first.error) return first;
-  return attempt(question, conversationId);
+  return attempt(question, conversationId, opts);
 }
 
 export const genieClient = { ask };

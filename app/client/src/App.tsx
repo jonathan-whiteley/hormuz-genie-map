@@ -1,21 +1,36 @@
-import { lazy, Suspense, useEffect, useState } from 'react';
-import { TopBar, type Tab } from './shell/TopBar';
-import { AppConfigContext, fetchAppConfig, type AppConfig } from './lib/appConfig';
+import { useEffect, useState } from 'react';
+import { ChatPanel } from './chat/ChatPanel';
+import { ChatProvider } from './chat/ChatProvider';
 import { DataProvider } from './data/DataContext';
-import { GenieProvider } from './genie/GenieProvider';
+import { AppConfigContext, fetchAppConfig, type AppConfig } from './lib/appConfig';
+import { MapScreen } from './map/MapScreen';
+import { useMapState } from './map/useMapState';
 import { ErrorBanner } from './shell/ErrorBanner';
-import { ExplorePage } from './explore/ExplorePage';
-import { StoryPage } from './story/StoryPage';
-import { SceneStepper } from './story/SceneStepper';
+import { HowItWorks } from './shell/HowItWorks';
+import { TopBar } from './shell/TopBar';
 
-// React Flow and html-to-image are only needed on the Architecture tab, so they load in their own chunk.
-const ArchitecturePage = lazy(() => import('./architecture/ArchitecturePage'));
-
-const status = { padding: 'var(--space-3)' };
+function Screen() {
+  const m = useMapState();
+  const [how, setHow] = useState(false);
+  return (
+    <div style={{ display: 'grid', gridTemplateRows: 'auto auto 1fr', height: '100vh' }}>
+      {/* Rows are pinned, so a null ErrorBanner cannot pull the map and chat into an auto row. */}
+      <div style={{ gridRow: 1 }}>
+        <TopBar tourOn={!!m.tour} onTour={m.tour ? m.exitTour : m.beginTour} onHow={() => setHow(true)} />
+      </div>
+      <div style={{ gridRow: 2 }}>
+        <ErrorBanner />
+      </div>
+      <div style={{ gridRow: 3, display: 'grid', gridTemplateColumns: '1fr 400px', minHeight: 0 }}>
+        <MapScreen m={m} />
+        <ChatPanel />
+      </div>
+      <HowItWorks open={how} onClose={() => setHow(false)} />
+    </div>
+  );
+}
 
 export default function App() {
-  const [tab, setTab] = useState<Tab>('story');
-  const [scene, setScene] = useState(0);
   const [config, setConfig] = useState<AppConfig | null>(null);
   const [configError, setConfigError] = useState<string | null>(null);
 
@@ -25,34 +40,13 @@ export default function App() {
       .catch((e: unknown) => setConfigError(String(e)));
   }, []);
 
+  if (configError) return <p role="alert" style={{ padding: 'var(--space-3)' }}>Could not load app config: {configError}</p>;
   return (
     <AppConfigContext.Provider value={config}>
       <DataProvider>
-        <GenieProvider>
-          <TopBar
-            tab={tab}
-            onTab={setTab}
-            slot={tab === 'story' ? <SceneStepper index={scene} onChange={setScene} /> : undefined}
-          />
-          <ErrorBanner />
-          {tab === 'architecture' ? (
-            <Suspense
-              fallback={
-                <p role="status" style={status}>
-                  Loading the architecture diagram
-                </p>
-              }
-            >
-              <ArchitecturePage />
-            </Suspense>
-          ) : config ? (
-            <main>{tab === 'explore' ? <ExplorePage /> : <StoryPage index={scene} onIndex={setScene} />}</main>
-          ) : (
-            <main style={status}>
-              {configError ? <p role="alert">Could not load app config: {configError}</p> : <p role="status">Loading</p>}
-            </main>
-          )}
-        </GenieProvider>
+        <ChatProvider>
+          <Screen />
+        </ChatProvider>
       </DataProvider>
     </AppConfigContext.Provider>
   );

@@ -66,7 +66,7 @@ databricks bundle deploy --var="catalog=<catalog>" --var="schedule_pause_status=
 databricks bundle run hormuz_map --var="catalog=<catalog>" --var="schedule_pause_status=UNPAUSED" --var="warehouse_id=<warehouse-id>" --var="genie_space_id=<genie-space-id>" --profile <p>
 ```
 
-You can also run step 7 in phase 1. The app then starts with Genie off: the Genie panel says "Genie is not configured for this app" and the Genie layer toggle is disabled. A table that does not exist yet shows a banner naming the query and table, and the rest of the map still renders.
+You can also run step 7 in phase 1. The app then starts with Genie off: the chat says "Genie is not configured for this app" and the question box is disabled. A table that does not exist yet shows a banner naming the query and table, and the rest of the map still renders.
 
 `catalog` and `warehouse_id` are required and have no default. Pass all four variables on every bundle command, quoted as shown, or export `BUNDLE_VAR_catalog`, `BUNDLE_VAR_schedule_pause_status`, `BUNDLE_VAR_warehouse_id` and `BUNDLE_VAR_genie_space_id` once as a shortcut. In the rest of this README, `<genie-space-id>` means `none` until you have built the space.
 
@@ -112,10 +112,10 @@ The job listens for 5 minutes, appends raw rows, then refreshes the `hormuz_ais`
 
 ## Decision layer (optional)
 
-The `hormuz_decisions` pipeline builds `gold_lane_recommendation`: an `ai_decide` recommendation per demo lane on weekly snapshot dates (every Monday from 2026-02-02, plus the latest data date). SQL turns each lane's numbers into a plain-language description, `ai_decide` only classifies it (situation, action, shift target, signal quality, with calibrated probabilities), and SQL composes the tier. The app shows the result as recommendation chips on the Story scenes and the left rail, with a weekly chart of the top action probability.
+The `hormuz_decisions` pipeline builds `gold_lane_recommendation`: an `ai_decide` recommendation per demo lane on weekly snapshot dates (every Monday from 2026-02-02, plus the latest data date). SQL turns each lane's numbers into a plain-language description, `ai_decide` only classifies it (situation, action, shift target, signal quality, with calibrated probabilities), and SQL composes the tier. Genie answers recommendation questions from `gold_lane_recommendation`.
 
 - **Prerequisite:** `ai_decide` is in Beta and must be enabled in your workspace. It also reads `gold_ais_visibility_index`, so run the [AIS sampler](#ais-visibility-sampler) at least once first.
-- **Optional by design:** it runs in its own pipeline and its own `hormuz_decisions_weekly` job (Mondays 08:00 UTC, paused unless `schedule_pause_status=UNPAUSED`). Without ai_decide only that pipeline and job fail; the app treats the missing table as "feature off" and hides the recommendation UI, with no error banner, and `genie.build_space` leaves the table out of the space.
+- **Optional by design:** it runs in its own pipeline and its own `hormuz_decisions_weekly` job (Mondays 08:00 UTC, paused unless `schedule_pause_status=UNPAUSED`). Without ai_decide only that pipeline and job fail; the app treats the missing table as "feature off", with no error banner, and `genie.build_space` leaves the table out of the space.
 - **Cost:** about 220 `ai_decide` calls per run (about 37 snapshot dates times 6 lanes, six more each week), billed at Databricks SQL rates.
 
 Run it by hand:
@@ -134,22 +134,22 @@ databricks bundle run hormuz_decisions --var="catalog=<catalog>" --var="schedule
 | Review | `action` confidence is 0.60 or more |
 | Analyst | otherwise |
 
-These are starting points, not tuned values; the app labels them "untuned demo thresholds". The lane status that feeds the description (`gold_lane_status`) also uses demo thresholds: Normal when the primary port is at 80 percent of its pre-war baseline or more, Degraded from 50 to 80, Shifted to alternative below 50 when the alternatives are at 100 percent or more, otherwise Disrupted.
+These are starting points, not tuned values; the Genie space is told to call them "untuned demo thresholds". The lane status that feeds the description (`gold_lane_status`) also uses demo thresholds: Normal when the primary port is at 80 percent of its pre-war baseline or more, Degraded from 50 to 80, Shifted to alternative below 50 when the alternatives are at 100 percent or more, otherwise Disrupted.
 
 ## App
 
-`hormuz-map` is an AppKit (React and TypeScript) Databricks App in `app/`, deployed by the same bundle (`resources/hormuz_app.app.yml`). It has three tabs (Story, Explore, Architecture) and a Genie panel beside the map in Story and Explore:
+`hormuz-map` is an AppKit (React and TypeScript) Databricks App in `app/`, deployed by the same bundle (`resources/hormuz_app.app.yml`). It is one screen: a map and a chat with Genie.
 
-- **Genie panel:** ask the Genie space in plain English. Answers with coordinates, H3 cells or lane ids are drawn on the map, and the generated SQL is shown under each answer. Until the app is deployed with a real `genie_space_id`, the panel says "Genie is not configured for this app" and explains how to set it.
-- **Story:** five guided scenes. Your exposure, the strait closes, where traffic went, lanes with no way around, and what you cannot see. Each scene moves the map and the date slider.
-- **Explore:** the full map with layers (chokepoints, ports, supply lanes, AIS cells, AIS regions, Genie answers), a date slider with conflict event marks, KPI cards and a lane recommendation chart.
-- **Architecture:** an interactive diagram of the sources, pipelines, tables, Genie and the app (loaded on first open).
+- **Ask the map:** ask a question in plain English. Genie answers in the chat, and the places, H3 cells or lanes in the answer are drawn on the map in Lava; the rest of the map dims. Click an older reply's map chip to show its answer again, or close the "Showing" pill to clear it. Hovering a table row highlights its mark.
+- **Layers:** chokepoints (on at rest), ports, supply lanes and AIS coverage, each toggled on its own. The date slider along the bottom moves every layer through 2026, with the war events marked.
+- **Tour:** five short steps (your exposure, the strait closes, where traffic went, lanes with no way around, what you cannot see). Each step has an "Ask Genie this" button. Exiting returns the map to where it was.
+- **How it works:** the architecture diagram.
 
 A freshness badge in the top bar shows the latest PortWatch day and the age of the last AIS sample, and turns amber when PortWatch is more than 7 days old or the last AIS sample more than 3 hours old.
 
 Data bounds in the app:
 
-- **AIS: last 30 days.** The AIS cell and visibility queries read only the last 30 days, to stay under AppKit's 5 MB limit per result as hourly samples accumulate. On a date more than 30 days back, the map shows no AIS cells and the visibility KPI reads "no data". The tables themselves keep the full history.
+- **AIS: last 30 days.** The AIS cell and visibility queries read only the last 30 days, to stay under AppKit's 5 MB limit per result as hourly samples accumulate. On a date more than 30 days back, the map shows no AIS cells and the AIS coverage labels read "no data". The tables themselves keep the full history.
 - **Ports: through 2026-12-31.** Port data is loaded in three fixed 2026 date chunks (`app/config/queries/ports_daily*.obo.sql`), so ports stop at the end of 2026 while chokepoints, lanes and AIS keep growing. To extend into 2027, add a `ports_daily_4` chunk and a matching slot in `app/client/src/data/loadAll.ts`.
 
 The supply lanes belong to a fictional company (Northwind Supply Co.) and are synthetic. Edit them in `src/pipelines/reference/ref_demo_lanes.sql`, deploy, and refresh only the lane tables (never a full refresh of `hormuz_reference`, which re-fetches PortWatch):
@@ -162,10 +162,10 @@ databricks bundle run hormuz_decisions --var="catalog=<catalog>" --var="schedule
 
 An alternative port name that does not match a PortWatch port shows up as a warning on the `alt_ports_resolved` expectation in the `hormuz_reference` event log.
 
-![Story scene 1](docs/img/live-story-1.png)
-![Explore](docs/img/live-explore.png)
-![Genie answer on the map](docs/img/live-genie.png)
-![Architecture](docs/img/live-architecture.png)
+![Resting map](docs/img/live-rest.png)
+![A Genie answer on the map](docs/img/live-answer.png)
+![Tour step 2](docs/img/live-tour.png)
+![How it works](docs/img/live-how.png)
 
 ### Deploy
 

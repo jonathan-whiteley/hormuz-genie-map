@@ -81,3 +81,10 @@ def test_serialized_space_leaves_out_missing_tables():
     assert len(ids) == len(full["data_sources"]["tables"]) - 2
     sqls = ["".join(e["sql"]) for e in part["instructions"]["example_question_sqls"]]
     assert all("gold_lane_recommendation" not in s and "gold_ais_visibility_index" not in s for s in sqls)
+
+
+def test_instructions_ask_for_place_names_with_coordinates():
+    from genie.space_config import instructions_for
+
+    text = instructions_for()
+    assert "return the port or chokepoint name with lat and lon" in text

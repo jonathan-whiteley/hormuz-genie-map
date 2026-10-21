@@ -1,12 +1,9 @@
 import type { Dataset } from '../data/types';
-import type { ViewState } from '../map/MapView';
 
 export const DAY = 86_400_000;
 export const SCRUB_START = '2026-01-01';
-export const INITIAL_VIEW: ViewState = { longitude: 54.5, latitude: 24.5, zoom: 4.6 };
 
 export const toT = (d: string) => Date.parse(`${d.slice(0, 10)}T00:00:00Z`);
-export const toISO = (t: number) => new Date(t).toISOString().slice(0, 10);
 
 export function fmtDate(d: string): string {
   const t = toT(d);
@@ -41,9 +38,6 @@ export function monthTicks(start: string, end: string): string[] {
 
 const maxDate = (rows: { date: string }[]): string | null =>
   rows.reduce<string | null>((m, r) => (m == null || r.date > m ? r.date : m), null);
-
-/** Latest PortWatch port day in the dataset, or null. */
-export const latestPortDate = (ds: Dataset): string | null => maxDate(ds.ports);
 
 const maxDay = (days: string[]): string | null =>
   days.reduce<string | null>((m, d) => (d.length === 10 && (m == null || d > m) ? d : m), null);

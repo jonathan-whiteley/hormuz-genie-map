@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { useData } from '../data/DataContext';
 import { fmtShort } from '../explore/dates';
 import { isStale, relativeTime } from './freshness';
@@ -11,8 +12,20 @@ const chip = {
 };
 const quiet = { background: 'var(--gray-100)', color: 'var(--gray-700)' };
 
+/** The current time, refreshed every minute, so render stays pure and the AIS age keeps moving. */
+function useNow(): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = window.setInterval(() => setNow(Date.now()), 60_000);
+    return () => window.clearInterval(id);
+  }, []);
+  return now;
+}
+
 /** Top-bar badge: latest PortWatch day and AIS sample age; amber when either is stale (spec 7). */
-export function FreshnessBadge({ now = Date.now() }: { now?: number }) {
+export function FreshnessBadge({ now: nowProp }: { now?: number }) {
+  const clock = useNow();
+  const now = nowProp ?? clock;
   const { dataset, loading } = useData();
   const f = dataset.freshness;
   if (loading) return <span style={{ ...chip, ...quiet }}>Checking data freshness</span>;
