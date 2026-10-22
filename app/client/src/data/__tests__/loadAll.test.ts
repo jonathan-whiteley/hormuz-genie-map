@@ -113,6 +113,26 @@ describe('loadAll', () => {
     expect(d.lanes).toHaveLength(1);
   });
 
+  it('events from an older table without effect or short_label default both to null', async () => {
+    const d = await loadAll(fake(), cfg);
+    expect(d.events).toEqual([
+      { event_date: '2026-02-28', event: 'e', source_url: 'u', effect: null, short_label: null },
+    ]);
+  });
+
+  it('events keep a known effect and their short label; an unknown effect becomes null', async () => {
+    const rows = [
+      { event_date: '2026-03-04', event: 'e1', source_url: 'u', effect: 'down', short_label: 'Strait closed' },
+      { event_date: '2026-04-08', event: 'e2', source_url: 'u', effect: 'sideways', short_label: '' },
+    ];
+    const run = async (name: string) => (name === 'conflict_events' ? rows : fake()(name));
+    const d = await loadAll(run, cfg);
+    expect(d.events.map((e) => [e.effect, e.short_label])).toEqual([
+      ['down', 'Strait closed'],
+      [null, null],
+    ]);
+  });
+
   it('optional recommendation failure is silent', async () => {
     const d = await loadAll(fake(['lane_recommendation']), cfg);
     expect(d.errors).toEqual([]);

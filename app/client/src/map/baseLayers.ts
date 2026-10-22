@@ -1,6 +1,6 @@
 import type { Layer } from '@deck.gl/core';
 import { H3HexagonLayer } from '@deck.gl/geo-layers';
-import { PathLayer, PolygonLayer, ScatterplotLayer, TextLayer } from '@deck.gl/layers';
+import { ColumnLayer, PathLayer, PolygonLayer, TextLayer } from '@deck.gl/layers';
 import {
   LOW_BASELINE,
   aisCellsOn,
@@ -13,6 +13,7 @@ import {
 import { fmtPct } from '../data/kpi';
 import type { Dataset, LaneDay, LaneStatus, PortDay, Region, VesselType } from '../data/types';
 import { NAVY, pctColor, statusColor, type RGBA } from './colors';
+import { COLUMN_RADIUS_PX, LABEL_ON_TOP, columnTransitions, elevationOf, elevationScaleFor, labelZ } from './columns';
 
 export type LngLat = [number, number];
 
@@ -183,20 +184,46 @@ export function curvePath(points: LngLat[]): LngLat[] {
   return out;
 }
 
-/** Chokepoint circle radius in pixels from its pre-war daily transits; a missing baseline counts as 0. */
-export function chokepointRadius(baseline: number | null | undefined): number {
-  return 8 + 1.5 * Math.sqrt(isNum(baseline) && baseline > 0 ? baseline : 0);
-}
-
 export interface BaseArgs {
   dataset: Dataset;
   date: string;
   visible: Toggles;
+  /** Integer zoom for the layer thresholds (AIS cells at 5, port labels at 6). */
   zoom: number;
+  /** Camera zoom rounded to ZOOM_STEP, for column heights and label altitude; defaults to `zoom`. */
+  columnZoom?: number;
   dimmed: boolean;
+  /** True under prefers-reduced-motion: no height transitions. */
+  reducedMotion?: boolean;
+  /** True while a Genie answer is on the map: the answer carries its own labels. */
+  hideLabels?: boolean;
+  /** Places a series answer draws itself: no base column or label there. */
+  hidePlaces?: LngLat[];
 }
 
-export function buildBaseLayers({ dataset: ds, date, visible, zoom, dimmed }: BaseArgs): Layer[] {
+/** A base datum within this many degrees (on both axes) of an answer place is the same place. */
+export const SAME_PLACE_DEG = 0.05;
+
+const near = (a: LngLat, b: LngLat): boolean =>
+  Math.abs(a[0] - b[0]) <= SAME_PLACE_DEG && Math.abs(a[1] - b[1]) <= SAME_PLACE_DEG;
+
+/** Drops the data whose position is one of the hidden places. */
+export function withoutPlaces<T extends { position?: LngLat }>(data: T[], hide: LngLat[]): T[] {
+  if (hide.length === 0) return data;
+  return data.filter((d) => !d.position || !hide.some((h) => near(h, d.position as LngLat)));
+}
+
+export function buildBaseLayers({
+  dataset: ds,
+  date,
+  visible,
+  zoom,
+  columnZoom = zoom,
+  dimmed,
+  reducedMotion = false,
+  hideLabels = false,
+  hidePlaces = [],
+}: BaseArgs): Layer[] {
   const opacity = dimmed ? DIM_OPACITY : 1;
   const layers: Layer[] = [];
 
@@ -247,6 +274,7 @@ export function buildBaseLayers({ dataset: ds, date, visible, zoom, dimmed }: Ba
         background: true,
         getBackgroundColor: LABEL_BG,
         backgroundPadding: [5, 2],
+        parameters: LABEL_ON_TOP,
       })
     );
     if (zoom >= AIS_CELL_ZOOM) {
@@ -298,40 +326,44 @@ export function buildBaseLayers({ dataset: ds, date, visible, zoom, dimmed }: Ba
   }
 
   if (visible.ports) {
-    const ports = visiblePorts(ds, date);
+    const ports = withoutPlaces(visiblePorts(ds, date), hidePlaces);
     layers.push(
-      new ScatterplotLayer<MapDatum>({
+      new ColumnLayer<MapDatum>({
         id: 'ports',
         data: ports,
         opacity,
-        getPosition: (d) => d.position ?? [0, 0],
-        getRadius: (d) => 4 + Math.sqrt(isNum(d.baseline) ? d.baseline : 0),
+        diskResolution: 12,
+        radius: COLUMN_RADIUS_PX.port,
         radiusUnits: 'pixels',
+        extruded: true,
+        flatShading: true,
+        elevationScale: elevationScaleFor(columnZoom),
+        getPosition: (d) => d.position ?? [0, 0],
+        getElevation: (d) => elevationOf(d.value7d),
         getFillColor: (d) => pctColor(d.pct ?? null),
-        stroked: true,
-        getLineColor: [255, 255, 255, 230],
-        lineWidthUnits: 'pixels',
-        getLineWidth: 1,
+        transitions: columnTransitions(reducedMotion),
         pickable: true,
       })
     );
-    if (zoom >= PORT_LABEL_ZOOM) {
+    if (zoom >= PORT_LABEL_ZOOM && !hideLabels) {
       layers.push(
         new TextLayer<MapDatum>({
           id: 'port-labels',
           data: ports,
           opacity,
-          getPosition: (d) => d.position ?? [0, 0],
+          getPosition: (d) => [...(d.position ?? [0, 0]), labelZ(d.value7d, columnZoom)],
           getText: (d) => d.name,
           getColor: [...NAVY, 230],
           getSize: 11,
           fontFamily: FONT,
           characterSet: 'auto',
-          getTextAnchor: 'start',
-          getPixelOffset: [8, 0],
+          getTextAnchor: 'middle',
+          getAlignmentBaseline: 'bottom',
+          getPixelOffset: [0, -10],
           background: true,
           getBackgroundColor: [255, 255, 255, 200],
           backgroundPadding: [3, 1],
+          parameters: LABEL_ON_TOP,
         })
       );
     }
@@ -339,7 +371,7 @@ export function buildBaseLayers({ dataset: ds, date, visible, zoom, dimmed }: Ba
 
   if (visible.chokepoints) {
     const baselines = chokepointBaselines(ds);
-    const data: MapDatum[] = latestChokepoints(ds, date).flatMap((c): MapDatum[] => {
+    const all: MapDatum[] = latestChokepoints(ds, date).flatMap((c): MapDatum[] => {
       const position = pt(c.lat, c.lon);
       if (!position) return [];
       const v = c.n_total_7d_avg;
@@ -358,39 +390,48 @@ export function buildBaseLayers({ dataset: ds, date, visible, zoom, dimmed }: Ba
         },
       ];
     });
+    const data = withoutPlaces(all, hidePlaces);
     layers.push(
-      new ScatterplotLayer<MapDatum>({
+      new ColumnLayer<MapDatum>({
         id: 'chokepoints',
         data,
         opacity,
-        getPosition: (d) => d.position ?? [0, 0],
-        getRadius: (d) => chokepointRadius(d.baseline),
+        diskResolution: 16,
+        radius: COLUMN_RADIUS_PX.chokepoint,
         radiusUnits: 'pixels',
-        getFillColor: (d) => pctColor(d.pct ?? null),
-        stroked: true,
-        getLineColor: [255, 255, 255, 255],
-        lineWidthUnits: 'pixels',
-        getLineWidth: 2,
-        pickable: true,
-      }),
-      new TextLayer<MapDatum>({
-        id: 'chokepoint-labels',
-        data,
-        opacity,
+        extruded: true,
+        flatShading: true,
+        elevationScale: elevationScaleFor(columnZoom),
         getPosition: (d) => d.position ?? [0, 0],
-        getText: (d) => d.label ?? d.name,
-        getColor: [...NAVY, 255],
-        getSize: 13,
-        fontFamily: FONT,
-        fontWeight: 500,
-        characterSet: 'auto',
-        getTextAnchor: 'start',
-        getPixelOffset: (d) => [chokepointRadius(d.baseline) + 6, 0],
-        background: true,
-        getBackgroundColor: LABEL_BG,
-        backgroundPadding: [6, 3],
+        getElevation: (d) => elevationOf(d.value7d),
+        getFillColor: (d) => pctColor(d.pct ?? null),
+        transitions: columnTransitions(reducedMotion),
+        pickable: true,
       })
     );
+    if (!hideLabels) {
+      layers.push(
+        new TextLayer<MapDatum>({
+          id: 'chokepoint-labels',
+          data,
+          opacity,
+          getPosition: (d) => [...(d.position ?? [0, 0]), labelZ(d.value7d, columnZoom)],
+          getText: (d) => d.label ?? d.name,
+          getColor: [...NAVY, 255],
+          getSize: 13,
+          fontFamily: FONT,
+          fontWeight: 500,
+          characterSet: 'auto',
+          getTextAnchor: 'middle',
+          getAlignmentBaseline: 'bottom',
+          getPixelOffset: [0, -10],
+          background: true,
+          getBackgroundColor: LABEL_BG,
+          backgroundPadding: [6, 3],
+          parameters: LABEL_ON_TOP,
+        })
+      );
+    }
   }
   return layers;
 }

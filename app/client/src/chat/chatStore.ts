@@ -2,6 +2,7 @@ import { createContext, useContext } from 'react';
 import type { LaneDay } from '../data/types';
 import type { AnswerFeature } from '../genie/answerFeatures';
 import type { GenieLayerSpec } from '../genie/genieLayer';
+import type { TimeSeries } from '../genie/timeSeries';
 import type { ThreadState } from './thread';
 
 /** The reply whose answer is on the map. */
@@ -11,6 +12,8 @@ export interface ActiveAnswer {
   spec: GenieLayerSpec;
   features: AnswerFeature[];
   chip: string | null;
+  /** Places over time, when the answer is a time series (it then plays on the map); otherwise null. */
+  series: TimeSeries | null;
 }
 
 export interface ChatApi {

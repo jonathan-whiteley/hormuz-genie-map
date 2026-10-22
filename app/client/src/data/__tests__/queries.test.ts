@@ -21,3 +21,12 @@ describe('AIS queries stay under the 5 MB per-event cap', () => {
     expect(sql('ais_visibility')).toMatch(/WHERE sample_hour >= current_timestamp\(\) - INTERVAL 30 DAYS/);
   });
 });
+
+describe('conflict_events', () => {
+  it('reads effect and short_label without failing on an older table that lacks them', () => {
+    const q = sql('conflict_events');
+    expect(q).toMatch(/SELECT \* FROM IDENTIFIER\(:catalog \|\| '\.' \|\| :schema \|\| '\.ref_conflict_events'\)/);
+    expect(q).toContain('effect');
+    expect(q).toContain('short_label');
+  });
+});

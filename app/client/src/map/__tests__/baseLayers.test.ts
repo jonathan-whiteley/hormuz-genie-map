@@ -5,7 +5,6 @@ import {
   DIM_OPACITY,
   RESTING,
   buildBaseLayers,
-  chokepointRadius,
   curve,
   laneSegments,
   regionShort,
@@ -164,25 +163,94 @@ describe('buildBaseLayers', () => {
   it('dims every base layer while an answer is on the map', () => {
     for (const l of build({ dimmed: true })) expect(l.props.opacity).toBe(DIM_OPACITY);
   });
+
+  it('draws chokepoints as extruded columns with labels at the column top', async () => {
+    const { ColumnLayer } = await import('@deck.gl/layers');
+    const layers = build({});
+    const cols = layers.find((l) => l.id === 'chokepoints');
+    expect(cols).toBeInstanceOf(ColumnLayer);
+    expect((cols?.props as unknown as { extruded: boolean }).extruded).toBe(true);
+    const labels = layers.find((l) => l.id === 'chokepoint-labels')?.props as unknown as {
+      data: unknown[];
+      getPosition: (d: unknown) => number[];
+    };
+    const pos = labels.getPosition(labels.data[0]);
+    expect(pos).toHaveLength(3);
+    expect(pos[2]).toBeGreaterThan(0);
+  });
 });
 
-describe('chokepoint sizing', () => {
-  type Accessor<T> = (d: MapDatum) => T;
-  /** Radius and label x offset of the first chokepoint drawn on the date. */
-  const sizeOn = (d: Dataset, date: string) => {
+describe('buildBaseLayers while an answer is on the map', () => {
+  const hormuz = choke({});
+  const suez = choke({ chokepoint: 'Suez Canal', lat: 30.6, lon: 32.3, n_total_7d_avg: 41, pct_of_baseline_total: 104 });
+  const jebel = port({});
+  const d = ds({ chokepoints: [hormuz, suez], ports: [jebel] });
+  const all = { chokepoints: true, ports: true, lanes: false, ais: false };
+  const build = (o: Partial<Parameters<typeof buildBaseLayers>[0]>) =>
+    buildBaseLayers({ dataset: d, date: '2026-10-01', visible: all, zoom: 6, dimmed: true, ...o });
+  const names = (layers: { id: string; props: { data: unknown } }[], id: string) =>
+    (layers.find((l) => l.id === id)?.props.data as MapDatum[]).map((x) => x.name);
+
+  it('hides the base labels but keeps the dimmed columns', () => {
+    const layers = build({ hideLabels: true });
+    expect(ids(layers)).toEqual(['ports', 'chokepoints']);
+    for (const l of layers) expect(l.props.opacity).toBe(DIM_OPACITY);
+    expect(ids(build({}))).toEqual(['ports', 'port-labels', 'chokepoints', 'chokepoint-labels']);
+  });
+
+  it('leaves out base columns and labels at places a series answer covers', () => {
+    // Within 0.05 degrees counts as the same place; Suez stays.
+    const layers = build({ hidePlaces: [[56.93, 26.27]] });
+    expect(names(layers, 'chokepoints')).toEqual(['Suez Canal']);
+    expect(names(layers, 'chokepoint-labels')).toEqual(['Suez Canal']);
+    expect(names(layers, 'ports')).toEqual(['Jebel Ali']);
+    expect(names(build({ hidePlaces: [[55.02, 25.01]] }), 'ports')).toEqual([]);
+    expect(names(build({ hidePlaces: [[57.0, 26.3]] }), 'chokepoints')).toEqual(['Strait of Hormuz', 'Suez Canal']);
+  });
+
+  it('draws every base label on top of the columns', async () => {
+    const { LABEL_ON_TOP } = await import('../columns');
+    const layers = build({ visible: { ...all, ais: true } });
+    const labels = layers.filter((l) => l.id.endsWith('labels'));
+    expect(labels.map((l) => l.id)).toEqual(['ais-region-labels', 'port-labels', 'chokepoint-labels']);
+    for (const l of labels) expect(l.props.parameters).toEqual(LABEL_ON_TOP);
+  });
+});
+
+describe('buildBaseLayers zoom inputs', () => {
+  const d = ds({ chokepoints: [choke({})], ports: [port({})], regions: [region({})] });
+  const all = { chokepoints: true, ports: true, lanes: false, ais: true };
+  type P = { elevationScale: number; data: unknown[]; getPosition: (x: unknown) => number[] };
+  const props = (layers: { id: string; props: unknown }[], id: string) => layers.find((l) => l.id === id)?.props as P;
+
+  it('scales columns and label altitude by the column zoom; thresholds use the integer zoom', async () => {
+    const { elevationScaleFor, labelZ } = await import('../columns');
+    const layers = buildBaseLayers({ dataset: d, date: '2026-10-01', visible: all, zoom: 5, columnZoom: 5.75, dimmed: false });
+    expect(props(layers, 'chokepoints').elevationScale).toBe(elevationScaleFor(5.75));
+    expect(props(layers, 'ports').elevationScale).toBe(elevationScaleFor(5.75));
+    const lab = props(layers, 'chokepoint-labels');
+    expect(lab.getPosition(lab.data[0])[2]).toBe(labelZ(4, 5.75));
+    // Integer zoom 5: AIS cells on, port labels (zoom 6) still off, even though the column zoom is near 6.
+    expect(ids(layers)).toContain('ais-cells');
+    expect(ids(layers)).not.toContain('port-labels');
+  });
+
+  it('defaults the column zoom to the zoom', async () => {
+    const { elevationScaleFor } = await import('../columns');
+    const layers = buildBaseLayers({ dataset: d, date: '2026-10-01', visible: RESTING, zoom: 3, dimmed: false });
+    expect(props(layers, 'chokepoints').elevationScale).toBe(elevationScaleFor(3));
+  });
+});
+
+describe('chokepoint baseline', () => {
+  /** Baseline of the first chokepoint drawn on the date (the popover shows it). */
+  const baselineOn = (d: Dataset, date: string) => {
     const layers = buildBaseLayers({ dataset: d, date, visible: RESTING, zoom: 4, dimmed: false });
-    const circles = layers.find((l) => l.id === 'chokepoints')!.props as unknown as {
-      data: MapDatum[];
-      getRadius: Accessor<number>;
-    };
-    const labels = layers.find((l) => l.id === 'chokepoint-labels')!.props as unknown as {
-      data: MapDatum[];
-      getPixelOffset: Accessor<[number, number]>;
-    };
-    return { radius: circles.getRadius(circles.data[0]), offset: labels.getPixelOffset(labels.data[0])[0] };
+    const cols = layers.find((l) => l.id === 'chokepoints')!.props as unknown as { data: MapDatum[] };
+    return cols.data[0].baseline;
   };
 
-  it('sizes by the pre-war baseline, so a shut chokepoint keeps its pre-war size', () => {
+  it('carries the pre-war baseline, so a shut chokepoint keeps its pre-war reference', () => {
     const d = ds({
       chokepoints: [
         choke({ date: '2026-01-15', n_total_7d_avg: 100, pct_of_baseline_total: 100 }),
@@ -190,23 +258,12 @@ describe('chokepoint sizing', () => {
         choke({ date: '2026-10-01', n_total_7d_avg: 0, pct_of_baseline_total: 0 }),
       ],
     });
-    const before = sizeOn(d, '2026-02-15');
-    const after = sizeOn(d, '2026-10-01');
-    expect(before.radius).toBe(chokepointRadius(100));
-    expect(after.radius).toBe(before.radius);
-    expect(after.offset).toBe(after.radius + 6);
+    expect(baselineOn(d, '2026-02-15')).toBe(100);
+    expect(baselineOn(d, '2026-10-01')).toBe(100);
   });
 
   it('falls back to value7d / pct when a chokepoint has no pre-war rows', () => {
     const d = ds({ chokepoints: [choke({ date: '2026-10-01', n_total_7d_avg: 4, pct_of_baseline_total: 25 })] });
-    const s = sizeOn(d, '2026-10-01');
-    expect(s.radius).toBe(chokepointRadius(16));
-    expect(s.offset).toBe(s.radius + 6);
-  });
-
-  it('uses 8 px plus 1.5 times the square root of the baseline, 8 px when missing', () => {
-    expect(chokepointRadius(16)).toBe(14);
-    expect(chokepointRadius(null)).toBe(8);
-    expect(chokepointRadius(undefined)).toBe(8);
+    expect(baselineOn(d, '2026-10-01')).toBe(16);
   });
 });

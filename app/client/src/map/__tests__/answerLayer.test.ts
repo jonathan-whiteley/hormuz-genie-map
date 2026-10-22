@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import type { AnswerFeature } from '../../genie/answerFeatures';
-import { answerLabel, buildAnswerLayers } from '../answerLayer';
+import { timeSeriesOf } from '../../genie/timeSeries';
+import { answerLabel, buildAnswerLayers, seriesLabel } from '../answerLayer';
 import type { MapDatum } from '../baseLayers';
+import { RELATIVE_PEAK_VESSELS } from '../answerScale';
+import { LABEL_ON_TOP, elevationOf } from '../columns';
 
 const pt = (i: number): AnswerFeature => ({
   key: `row:${i}`,
@@ -75,5 +78,64 @@ describe('answerLabel', () => {
   it('joins name and value', () => {
     expect(answerLabel(pt(3))).toBe('Port 3  3%');
     expect(answerLabel({ ...pt(3), value: null })).toBe('Port 3');
+  });
+});
+
+const series = timeSeriesOf({
+  kind: 'points',
+  latField: 'lat',
+  lonField: 'lon',
+  nameField: 'chokepoint',
+  rows: [
+    { month: '2026-02', chokepoint: 'Strait of Hormuz', n_total_7d_avg: '76.9', lat: '26.3', lon: '56.9' },
+    { month: '2026-03', chokepoint: 'Strait of Hormuz', n_total_7d_avg: '10.3', lat: '26.3', lon: '56.9' },
+  ],
+})!;
+
+describe('series answers', () => {
+  it('draw a halo disc, Lava columns and labels', () => {
+    const layers = buildAnswerLayers({ kind: 'points', features: [], highlightRow: null, series, date: '2026-03-01', zoom: 4 });
+    expect(layers.map((l) => l.id)).toEqual(['answer-halo', 'answer-columns', 'answer-labels']);
+  });
+
+  it('height follows the frame on or before the date', () => {
+    const at = (date: string) => {
+      const cols = buildAnswerLayers({ kind: 'points', features: [], highlightRow: null, series, date, zoom: 4 })[1];
+      const data = cols.props.data as { elevation: number }[];
+      return data[0].elevation;
+    };
+    expect(at('2026-02-15')).toBeGreaterThan(at('2026-03-15'));
+  });
+
+  it('labels show the place, the frame date and the value', () => {
+    expect(seriesLabel(series, 'Strait of Hormuz', '2026-03-01', 10.3)).toBe('Strait of Hormuz · Mar 2026 · 10.3 a day');
+    expect(seriesLabel(series, 'Strait of Hormuz', '2026-03-01', null)).toBe('Strait of Hormuz · Mar 2026 · no data');
+  });
+
+  it('answer labels, series and 2D, draw on top of the columns', () => {
+    const lab = (layers: { id: string; props: { parameters?: unknown } }[]) => layers.find((l) => l.id === 'answer-labels')?.props.parameters;
+    expect(lab(buildAnswerLayers({ kind: 'points', features: [], highlightRow: null, series, date: '2026-03-01', zoom: 4 }))).toEqual(LABEL_ON_TOP);
+    expect(lab(buildAnswerLayers({ kind: 'points', features: [pt(1)], highlightRow: null }))).toEqual(LABEL_ON_TOP);
+  });
+});
+
+describe('series answers that are not daily rates', () => {
+  const sums = timeSeriesOf({
+    kind: 'points',
+    latField: 'lat',
+    lonField: 'lon',
+    nameField: 'chokepoint',
+    rows: [
+      { month: '2026-02', chokepoint: 'Strait of Hormuz', n_total: '2100', lat: '26.3', lon: '56.9' },
+      { month: '2026-03', chokepoint: 'Strait of Hormuz', n_total: '300', lat: '26.3', lon: '56.9' },
+    ],
+  })!;
+
+  it('stay within the pre-war Hormuz height and keep the real value in the label', () => {
+    const layers = buildAnswerLayers({ kind: 'points', features: [], highlightRow: null, series: sums, date: '2026-02-01', zoom: 4 });
+    const cols = layers.find((l) => l.id === 'answer-columns')!;
+    const data = cols.props.data as { elevation: number; label: string }[];
+    expect(data[0].elevation).toBeLessThanOrEqual(elevationOf(RELATIVE_PEAK_VESSELS) + 1e-6);
+    expect(data[0].label).toBe('Strait of Hormuz · Feb 2026 · 2,100');
   });
 });

@@ -140,9 +140,11 @@ These are starting points, not tuned values; the Genie space is told to call the
 
 `hormuz-map` is an AppKit (React and TypeScript) Databricks App in `app/`, deployed by the same bundle (`resources/hormuz_app.app.yml`). It is one screen: a map and a chat with Genie.
 
-- **Ask the map:** ask a question in plain English. Genie answers in the chat, and the places, H3 cells or lanes in the answer are drawn on the map in Lava; the rest of the map dims. Click an older reply's map chip to show its answer again, or close the "Showing" pill to clear it. Hovering a table row highlights its mark.
-- **Layers:** chokepoints (on at rest), ports, supply lanes and AIS coverage, each toggled on its own. The date slider along the bottom moves every layer through 2026, with the war events marked.
-- **Tour:** five short steps (your exposure, the strait closes, where traffic went, lanes with no way around, what you cannot see). Each step has an "Ask Genie this" button. Exiting returns the map to where it was.
+- **3D columns:** chokepoints and ports stand as columns whose height is vessels a day (7-day average), colored by percent of pre-war normal. The map is tilted to 45 degrees; right-drag (or drag the compass) to rotate it or change the tilt, and click the compass to reset.
+- **Ask the map:** ask a question in plain English. Genie answers in the chat, and the places, H3 cells or lanes in the answer are drawn on the map in Lava; the rest of the map dims and its labels hide. Click an older reply's map chip to show its answer again, or close the "Showing" pill to clear it. Hovering a table row highlights its mark.
+- **Trend answers:** a Genie answer about places over time (for example "What is the monthly trend of vessel transits through the Strait of Hormuz since the war began?") plays as Lava columns, one frame per period, with play and pause in the "Showing" pill; the date slider follows the frame. Clearing the answer puts the slider back on the date you had before it.
+- **Layers:** chokepoints (on at rest), ports, supply lanes and AIS coverage, each toggled on its own. The date slider along the bottom moves every layer through 2026, with the war events marked; its play button animates the year a day at a time (a week at a time with reduced motion), and dragging the slider pauses it.
+- **Tour:** five short steps (your exposure, the strait closes, where traffic went, lanes with no way around, what you cannot see), on the same tilted map. Each step has an "Ask Genie this" button. Exiting returns the map to where it was.
 - **How it works:** the architecture diagram.
 
 A freshness badge in the top bar shows the latest PortWatch day and the age of the last AIS sample, and turns amber when PortWatch is more than 7 days old or the last AIS sample more than 3 hours old.
@@ -163,7 +165,8 @@ databricks bundle run hormuz_decisions --var="catalog=<catalog>" --var="schedule
 An alternative port name that does not match a PortWatch port shows up as a warning on the `alt_ports_resolved` expectation in the `hormuz_reference` event log.
 
 ![Resting map](docs/img/live-rest.png)
-![A Genie answer on the map](docs/img/live-answer.png)
+![Playing the timeline](docs/img/live-play.png)
+![A Genie trend answer playing on the map](docs/img/live-answer.png)
 ![Tour step 2](docs/img/live-tour.png)
 ![How it works](docs/img/live-how.png)
 

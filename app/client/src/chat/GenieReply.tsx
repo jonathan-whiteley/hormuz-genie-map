@@ -1,4 +1,5 @@
 import { useMemo } from 'react';
+import genieIcon from '../assets/genie-icon-full-color.svg';
 import { answerFeatures, mapChipText } from '../genie/answerFeatures';
 import { AnswerTable } from './AnswerTable';
 import { followChip } from './chatStyles';
@@ -17,21 +18,7 @@ const who = (
       gap: 6,
     }}
   >
-    <span
-      aria-hidden
-      style={{
-        width: 18,
-        height: 18,
-        borderRadius: 5,
-        background: 'var(--lava-600)',
-        color: 'var(--white)',
-        display: 'grid',
-        placeItems: 'center',
-        fontSize: 11,
-      }}
-    >
-      G
-    </span>
+    <img src={genieIcon} alt="" aria-hidden width={18} height={18} style={{ display: 'block', flexShrink: 0 }} />
     Genie
   </div>
 );

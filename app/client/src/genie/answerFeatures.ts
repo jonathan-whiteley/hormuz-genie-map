@@ -70,7 +70,7 @@ function nameOf(r: Row, field: string | undefined, fallback: string): string {
 }
 
 /** A latitude and longitude on the globe; anything else would make MapLibre throw on fitBounds. */
-const inRange = (lat: number, lon: number) => Math.abs(lat) <= 90 && Math.abs(lon) <= 180;
+export const inRange = (lat: number, lon: number) => Math.abs(lat) <= 90 && Math.abs(lon) <= 180;
 
 const rowIndexOf = (r: Row, i: number): number => {
   const v = r[ROW_INDEX];
@@ -125,7 +125,8 @@ function mergeByPlace(drawn: Drawn[], dateField: string | undefined): AnswerFeat
   return [...byPlace.values()].map((d) => d.feature);
 }
 
-const posKey = ([lon, lat]: LngLat) => `${lon.toFixed(4)},${lat.toFixed(4)}`;
+/** One key per map position (4 decimal places, about 11 m), so rows at the same place merge. */
+export const posKey = ([lon, lat]: LngLat) => `${lon.toFixed(4)},${lat.toFixed(4)}`;
 
 export function answerFeatures(spec: GenieLayerSpec, lanes: LaneDay[]): AnswerFeature[] {
   if (spec.kind === 'lanes') {

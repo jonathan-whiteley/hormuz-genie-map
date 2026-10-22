@@ -5,6 +5,7 @@ import { lanesOnIdx } from '../data/dataIndex';
 import { answerFeatures, mapChipText, mappableSpec } from '../genie/answerFeatures';
 import { ask } from '../genie/genieClient';
 import { gazetteerOf } from '../genie/places';
+import { timeSeriesOf } from '../genie/timeSeries';
 import { ChatContext, type ActiveAnswer, type ChatApi } from './chatStore';
 import { EMPTY_THREAD, activeOf, canSend, pendingOf, threadReducer } from './thread';
 
@@ -91,6 +92,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       spec: activeMsg.spec,
       features,
       chip: mapChipText(activeMsg.spec, features),
+      series: timeSeriesOf(activeMsg.spec),
     };
   }, [activeMsg, lanes]);
 

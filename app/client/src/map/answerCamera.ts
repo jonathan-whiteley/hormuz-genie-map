@@ -2,7 +2,7 @@ import type { ViewState } from './MapView';
 
 type Bounds = [[number, number], [number, number]];
 
-const ANSWER_PADDING = { top: 80, bottom: 80, left: 230, right: 200 };
+const ANSWER_PADDING = { top: 130, bottom: 80, left: 230, right: 200 };
 const ANSWER_MAX_ZOOM = 7;
 
 /** The answer whose camera was last applied, and the reader's view from before the first answer. */

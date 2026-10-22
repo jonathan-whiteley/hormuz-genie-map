@@ -4,6 +4,7 @@ import type {
   ChokepointDay,
   ConflictEvent,
   Dataset,
+  EventEffect,
   Freshness,
   LaneDay,
   LaneRec,
@@ -106,6 +107,21 @@ const CELL_NUM = ['unique_vessels', 'positions'];
 
 const str = (v: unknown): string | null => (v == null || v === '' ? null : String(v));
 
+const EFFECTS: readonly string[] = ['down', 'up', 'context'];
+
+/** An older ref_conflict_events has no effect or short_label; both default to null. */
+function toEvent(r: Row): ConflictEvent {
+  const effect = typeof r.effect === 'string' && EFFECTS.includes(r.effect) ? (r.effect as EventEffect) : null;
+  const label = str(r.short_label);
+  return {
+    event_date: str(r.event_date) ?? '',
+    event: str(r.event) ?? '',
+    source_url: str(r.source_url) ?? '',
+    effect,
+    short_label: label?.trim() ? label : null,
+  };
+}
+
 export const emptyDataset = (): Dataset => ({
   chokepoints: [],
   ports: [],
@@ -158,7 +174,7 @@ export async function loadAll(runQuery: RunQuery, cfg: { catalog: string; schema
       return o;
     });
   }
-  if (events) ds.events = events.map((r) => coerce<ConflictEvent>(r, []));
+  if (events) ds.events = events.map(toEvent);
   if (vis) ds.visibility = vis.map((r) => coerce<VisibilityPoint>(r, VIS_NUM));
   if (regions) ds.regions = regions.map((r) => coerce<Region>(r, REGION_NUM));
   if (cells) ds.aisCells = cells.map((r) => coerce<AisCell>(r, CELL_NUM));

@@ -1,7 +1,18 @@
+import { PlayButton } from '../shell/PlayButton';
+
 const MAX = 60;
 
+interface Props {
+  question: string;
+  onClear: () => void;
+  /** A time-series answer: play/pause its frames and show the frame date. */
+  playing?: boolean;
+  onTogglePlay?: () => void;
+  frameDate?: string;
+}
+
 /** Top-center pill naming the answer on the map, with a close button that clears it. */
-export function AnswerPill({ question, onClear }: { question: string; onClear: () => void }) {
+export function AnswerPill({ question, onClear, playing, onTogglePlay, frameDate }: Props) {
   const text = question.length > MAX ? `${question.slice(0, MAX - 1).trimEnd()}…` : question;
   return (
     <div
@@ -28,7 +39,9 @@ export function AnswerPill({ question, onClear }: { question: string; onClear: (
         aria-hidden
         style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--lava-600)', flexShrink: 0 }}
       />
+      {onTogglePlay && <PlayButton playing={!!playing} onToggle={onTogglePlay} label="the answer" />}
       <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Showing: {text}</span>
+      {frameDate && <span style={{ fontWeight: 700, whiteSpace: 'nowrap' }}>{frameDate}</span>}
       <button
         type="button"
         aria-label="Clear the answer from the map"

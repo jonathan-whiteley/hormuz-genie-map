@@ -11,7 +11,8 @@ export type GenieLayerSpec =
 /** At most this many rows are drawn per Genie layer; the table says "showing N of M". */
 export const MAX_LAYER_ROWS = 5000;
 
-const missing = (v: unknown) => v === null || v === undefined || v === '';
+/** A missing cell: null, undefined or an empty string. */
+export const missing = (v: unknown) => v === null || v === undefined || v === '';
 
 /** A finite number, or null when the value is missing or not numeric. Numbers may arrive as strings. */
 export function toNum(v: unknown): number | null {
@@ -45,15 +46,17 @@ export function toH3Hex(v: unknown): string | null {
   return H3_HEX.test(s) ? s : null;
 }
 
-const isH3Name = (lc: string) => lc === 'h3' || lc.endsWith('_h3') || lc.startsWith('h3');
+/** Column-name tests take a lower-cased name. */
+export const isH3Name = (lc: string) => lc === 'h3' || lc.endsWith('_h3') || lc.startsWith('h3');
 const COORD_NAMES = new Set(['lat', 'lon', 'lng', 'latitude', 'longitude']);
+export const isCoordName = (lc: string) => COORD_NAMES.has(lc);
 
 /** First column whose non-null values are all numeric, never a coordinate or another h3 column. */
 function valueField(columns: string[], rows: Row[], used: string[]): string | undefined {
   return columns.find((c) => {
     if (used.includes(c)) return false;
     const lc = c.toLowerCase();
-    if (COORD_NAMES.has(lc) || isH3Name(lc)) return false;
+    if (isCoordName(lc) || isH3Name(lc)) return false;
     const vals = rows.map((r) => r[c]).filter((v) => !missing(v));
     return vals.length > 0 && vals.every((v) => toNum(v) !== null);
   });
@@ -67,7 +70,8 @@ export const ROW_INDEX = '__row';
 /** An ISO date or timestamp string: 2026-03-02, 2026-03, 2026-03-02T00:00:00Z or 2026-03-02 00:00:00. */
 const ISO_DATE = /^\d{4}-\d{2}(-\d{2})?([T ]\d{2}:\d{2}.*)?$/;
 const DATE_NAMES = new Set(['date', 'day', 'week', 'month', 'year']);
-const isIdName = (lc: string) => lc === 'id' || lc.endsWith('_id');
+export const isDateName = (lc: string) => DATE_NAMES.has(lc);
+export const isIdName = (lc: string) => lc === 'id' || lc.endsWith('_id') || lc === 'mmsi';
 
 /** First column whose non-null values are all ISO dates or timestamps, so rows can be ordered by time. */
 export function dateColumn(columns: string[], rows: Row[]): string | undefined {
@@ -86,7 +90,7 @@ export function nameColumn(columns: string[], rows: Row[], skip: string[], place
   const dates = new Set(columns.filter((c) => dateColumn([c], rows) !== undefined));
   const candidates = columns.filter((c) => {
     const lc = c.toLowerCase();
-    if (skip.includes(c) || dates.has(c) || DATE_NAMES.has(lc) || isIdName(lc)) return false;
+    if (skip.includes(c) || dates.has(c) || isDateName(lc) || isIdName(lc)) return false;
     const vals = rows.map((r) => r[c]).filter((v) => !missing(v));
     return vals.length > 0 && vals.every((v) => typeof v === 'string' && toNum(v) === null);
   });

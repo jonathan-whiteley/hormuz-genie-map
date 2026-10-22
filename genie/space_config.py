@@ -22,11 +22,12 @@ INSTRUCTIONS = """You answer questions about shipping through the Strait of Horm
 - Prefer 7-day averages (n_total_7d_avg, n_tanker_7d_avg, portcalls_tanker_7d_avg, export_tanker_7d_avg) for trends; daily values are noisy.
 - export_tanker and import_tanker are estimated metric tons, not barrels.
 - For map answers return lat, lon, and h3_res7 columns alongside the metric.
-- Use ref_conflict_events to annotate or segment by war phase (event_date).
+- Use ref_conflict_events to annotate or segment by war phase (event_date). In ref_conflict_events, effect is the direction the event pushed visible Hormuz traffic: down, up, or context (no direct effect); short_label is a few words naming the event.
 - Data lags real time by a few days; mention the latest date in the result.
 - ref_demo_lanes and gold_lane_status describe a fictional company's example lanes (synthetic). Say so when answering. volume_at_risk is an assumption.
 - For questions about our lanes, use gold_lane_status at the latest date unless a date is given, and return lane_id, lane, status, primary_pct, alternative_pct, volume_at_risk, volume_unit. Do not filter to status = 'Disrupted': show all lanes with their status so lanes that 'Shifted to alternative' stay visible.
 - For questions about places, return the port or chokepoint name with lat and lon, so the app can map the answer.
+- For trends over time about a port or chokepoint (monthly, weekly or daily), return one row per place per period with the place name (chokepoint or port), lat and lon, the period, and the average vessels per day (7-day average), not a sum, so the app can play the trend on the map.
 - gold_ais_visibility_index: visibility_vs_control compares a Gulf target region with the median busy control lane (1.0 = equally visible). It measures AIS visibility, not traffic.
 - Percent-of-baseline values are unreliable when the pre-war baseline is under 1 call per day. Do not headline them; report the 7-day average calls and the baseline alongside, and say the baseline is small (low_baseline).
 - gold_lane_recommendation holds ai_decide recommendations. Always report tier, action, and action_confidence together; tiers use untuned demo thresholds; never present a recommendation as certain."""
@@ -43,19 +44,20 @@ SAMPLE_QUESTIONS = [
 EXAMPLE_SQL = [
     (
         "Monthly Hormuz transits vs. pre-war baseline",
-        """SELECT date_trunc('month', date) AS month,
+        """SELECT date_trunc('month', date) AS month, chokepoint,
+       ANY_VALUE(lat) AS lat, ANY_VALUE(lon) AS lon,
        ROUND(AVG(n_total), 1) AS avg_daily_transits,
        ROUND(AVG(n_tanker), 1) AS avg_daily_tanker_transits,
        ROUND(AVG(pct_of_baseline_total), 1) AS pct_of_prewar_baseline
 FROM `{catalog}`.`{schema}`.gold_chokepoint_daily
 WHERE chokepoint = 'Strait of Hormuz' AND date >= '2026-01-01'
-GROUP BY 1 ORDER BY 1""",
+GROUP BY month, chokepoint ORDER BY month""",
     ),
     (
         "Bypass port tanker activity, weekly",
         """SELECT date_trunc('week', date) AS week, port,
-       SUM(portcalls_tanker) AS tanker_port_calls,
-       ROUND(SUM(export_tanker)) AS tanker_export_tonnes,
+       ROUND(AVG(portcalls_tanker), 1) AS avg_daily_tanker_port_calls,
+       ROUND(AVG(export_tanker)) AS avg_daily_tanker_export_tonnes,
        ANY_VALUE(lat) AS lat, ANY_VALUE(lon) AS lon, ANY_VALUE(h3_res7) AS h3_res7
 FROM `{catalog}`.`{schema}`.gold_port_daily
 WHERE (port IN ('Fujairah', 'Khor Fakkan') OR port LIKE 'Yanbu%') AND date >= '2026-02-28'
@@ -63,7 +65,7 @@ GROUP BY 1, 2 ORDER BY 1, 2""",
     ),
     (
         "Chokepoint comparison, 7-day average",
-        """SELECT date, chokepoint, n_total_7d_avg, pct_of_baseline_total
+        """SELECT date, chokepoint, lat, lon, n_total_7d_avg, pct_of_baseline_total
 FROM `{catalog}`.`{schema}`.gold_chokepoint_daily
 WHERE chokepoint IN ('Strait of Hormuz', 'Bab el-Mandeb Strait', 'Suez Canal', 'Cape of Good Hope')
   AND date >= '2026-01-01'
@@ -145,6 +147,24 @@ FROM `{catalog}`.`{schema}`.gold_ais_visibility_index
 WHERE error IS NULL
 QUALIFY ROW_NUMBER() OVER (PARTITION BY region ORDER BY sample_hour DESC) = 1
 ORDER BY region""",
+    ),
+    (
+        "Which events reopened traffic through Hormuz?",
+        """SELECT event_date, event, effect, source_url
+FROM `{catalog}`.`{schema}`.ref_conflict_events
+WHERE effect = 'up'
+ORDER BY event_date""",
+    ),
+    (
+        "What is the monthly trend of vessel transits through the Strait of Hormuz since the war began?",
+        """SELECT date_trunc('MONTH', date) AS month, chokepoint,
+       ANY_VALUE(lat) AS lat, ANY_VALUE(lon) AS lon,
+       ROUND(AVG(n_total_7d_avg), 1) AS n_total_7d_avg,
+       ROUND(AVG(n_tanker_7d_avg), 1) AS n_tanker_7d_avg
+FROM `{catalog}`.`{schema}`.gold_chokepoint_daily
+WHERE chokepoint = 'Strait of Hormuz' AND date >= '2026-02-01'
+GROUP BY month, chokepoint
+ORDER BY month""",
     ),
 ]
 

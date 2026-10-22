@@ -58,6 +58,7 @@ describe('steps', () => {
       longitude: last.center[0],
       latitude: last.center[1],
       zoom: last.zoom,
+      pitch: 45,
     });
     const region = {
       region: 'r',
@@ -74,6 +75,10 @@ describe('steps', () => {
       [2, 1],
       [4, 3],
     ]);
+  });
+
+  it('every step camera is pitched', () => {
+    for (const s of STEPS) expect(stepCamera(s, emptyDataset()).pitch).toBe(45);
   });
 
   it('captions are at most two sentences and never throw on an empty dataset', () => {

@@ -52,7 +52,8 @@ function isDatum(o: unknown): o is MapDatum {
 const close = (a: ViewState, b: ViewState) =>
   Math.abs(a.longitude - b.longitude) < 1e-4 &&
   Math.abs(a.latitude - b.latitude) < 1e-4 &&
-  Math.abs(a.zoom - b.zoom) < 1e-3;
+  Math.abs(a.zoom - b.zoom) < 1e-3 &&
+  Math.abs((a.pitch ?? 0) - (b.pitch ?? 0)) < 0.5;
 
 function TooltipBody({ d }: { d: MapDatum }) {
   const row = (k: string, v: string) => (
@@ -138,11 +139,12 @@ export function MapView({
       pitch: viewState.pitch ?? 0,
       bearing: viewState.bearing ?? 0,
       attributionControl: { compact: true },
+      maxPitch: 60,
     });
     map.setPadding(pad(padding));
     const initialFit = fitOptions(viewState, sizeOf(container.current), pad(padding), 0);
     if (viewState.bounds && initialFit) map.fitBounds(viewState.bounds, initialFit);
-    map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right');
+    map.addControl(new maplibregl.NavigationControl({ showCompass: true, visualizePitch: true }), 'top-right');
     const overlay = new MapboxOverlay({
       interleaved: false,
       layers: [],
@@ -170,6 +172,8 @@ export function MapView({
         bearing: map.getBearing(),
       });
     });
+    // Report during camera moves too, so column heights keep up with a flight (the receiver rounds).
+    map.on('zoom', () => cbs.current.onZoom?.(map.getZoom()));
     map.on('zoomend', () => cbs.current.onZoom?.(map.getZoom()));
     map.once('load', () => cbs.current.onZoom?.(map.getZoom()));
     mapRef.current = map;
@@ -208,7 +212,7 @@ export function MapView({
       return;
     }
     const c = map.getCenter();
-    const cur = { longitude: c.lng, latitude: c.lat, zoom: map.getZoom() };
+    const cur = { longitude: c.lng, latitude: c.lat, zoom: map.getZoom(), pitch: map.getPitch() };
     if (close(cur, viewState)) return;
     map.flyTo(
       {

@@ -77,10 +77,17 @@ export interface LaneDay {
   volume_at_risk: Num;
 }
 
+/** The direction an event pushed visible Hormuz traffic; context means no direct effect. */
+export type EventEffect = 'down' | 'up' | 'context';
+
 export interface ConflictEvent {
   event_date: string;
   event: string;
   source_url: string;
+  /** Null when the table predates the column or the value is not one of the three. */
+  effect: EventEffect | null;
+  /** A few words for the slider label; null when the table predates the column. */
+  short_label: string | null;
 }
 
 export interface VisibilityPoint {

@@ -1,6 +1,7 @@
 import type { ConflictEvent, Dataset } from '../data/types';
 import type { Toggles } from '../map/baseLayers';
 import type { ViewState } from '../map/MapView';
+import { DEFAULT_PITCH } from '../map/views';
 import {
   QUESTIONS,
   body1,
@@ -90,10 +91,15 @@ export const STEPS: TourStep[] = [
 export const TOUR_PADDING_BOTTOM = 190;
 
 export function stepCamera(step: TourStep, ds: Dataset): ViewState {
-  const base: ViewState = { longitude: step.center[0], latitude: step.center[1], zoom: step.zoom };
+  const base: ViewState = {
+    longitude: step.center[0],
+    latitude: step.center[1],
+    zoom: step.zoom,
+    pitch: DEFAULT_PITCH,
+  };
   if (!step.fitRegions) return base;
   const bounds = regionsBounds(ds.regions);
-  return bounds ? { ...base, bounds, boundsPadding: { top: 24, bottom: 24, left: 24, right: 24 } } : base;
+  return bounds ? { ...base, bounds, boundsPadding: { top: 70, bottom: 24, left: 230, right: 140 } } : base;
 }
 
 /** The step's data-driven copy, cut to two sentences for the caption bar. */
