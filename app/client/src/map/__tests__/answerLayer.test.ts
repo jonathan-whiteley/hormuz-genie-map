@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { AnswerFeature } from '../../genie/answerFeatures';
+import { LABEL_LIMIT, type AnswerFeature } from '../../genie/answerFeatures';
 import { timeSeriesOf } from '../../genie/timeSeries';
 import { answerLabel, buildAnswerLayers, seriesLabel } from '../answerLayer';
 import type { MapDatum } from '../baseLayers';
@@ -116,6 +116,46 @@ describe('series answers', () => {
     const lab = (layers: { id: string; props: { parameters?: unknown } }[]) => layers.find((l) => l.id === 'answer-labels')?.props.parameters;
     expect(lab(buildAnswerLayers({ kind: 'points', features: [], highlightRow: null, series, date: '2026-03-01', zoom: 4 }))).toEqual(LABEL_ON_TOP);
     expect(lab(buildAnswerLayers({ kind: 'points', features: [pt(1)], highlightRow: null }))).toEqual(LABEL_ON_TOP);
+  });
+});
+
+describe('series answers with many places', () => {
+  // 20 ports over two weeks. Week of Oct 5: port i has i tanker calls a day, so port 0 has none.
+  // Week of Sep 28 runs the other way, so the labels must follow the frame on the date.
+  const row = (week: string, i: number, v: number) => ({
+    week,
+    port: `Port ${i}`,
+    portcalls_tanker_7d_avg: String(v),
+    lat: '25',
+    lon: String(45 + i),
+  });
+  const many = timeSeriesOf({
+    kind: 'points',
+    latField: 'lat',
+    lonField: 'lon',
+    nameField: 'port',
+    rows: Array.from({ length: 20 }, (_, i) => [row('2026-09-28', i, 19 - i), row('2026-10-05', i, i)]).flat(),
+  })!;
+  const labels = (s: typeof many) =>
+    (
+      buildAnswerLayers({ kind: 'points', features: [], highlightRow: null, series: s, date: '2026-10-05', zoom: 4 })
+        .find((l) => l.id === 'answer-labels')
+        ?.props.data as MapDatum[]
+    ).map((d) => d.name);
+
+  it('label only the largest values, up to the label limit, and never a zero', () => {
+    const got = labels(many);
+    expect(got).toHaveLength(LABEL_LIMIT);
+    expect(new Set(got)).toEqual(new Set(Array.from({ length: LABEL_LIMIT }, (_, k) => `Port ${19 - k}`)));
+  });
+
+  it('still draw a column for every place', () => {
+    const layers = buildAnswerLayers({ kind: 'points', features: [], highlightRow: null, series: many, date: '2026-10-05', zoom: 4 });
+    expect((layers.find((l) => l.id === 'answer-columns')?.props.data as MapDatum[]).length).toBe(20);
+  });
+
+  it('label every place, zeros included, when there are few', () => {
+    expect(labels(series)).toEqual(['Strait of Hormuz']);
   });
 });
 

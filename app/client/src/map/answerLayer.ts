@@ -49,6 +49,18 @@ interface SeriesDatum extends MapDatum {
   value: number | null;
 }
 
+/**
+ * Every place when there are few; past LABEL_LIMIT only the largest non-zero values, so a series
+ * over dozens of ports names the busiest ones instead of stacking unreadable labels.
+ */
+function labeled(data: SeriesDatum[]): SeriesDatum[] {
+  if (data.length <= LABEL_LIMIT) return data;
+  return data
+    .filter((d) => d.value !== null && d.value > 0)
+    .sort((a, b) => (b.value ?? 0) - (a.value ?? 0))
+    .slice(0, LABEL_LIMIT);
+}
+
 function seriesLayers(series: TimeSeries, date: string, zoom: number, highlightRow: number | null, reduced: boolean): Layer[] {
   const { date: at, values } = frameOn(series, date);
   if (!at) return [];
@@ -101,7 +113,7 @@ function seriesLayers(series: TimeSeries, date: string, zoom: number, highlightR
     }),
     new TextLayer<SeriesDatum>({
       id: 'answer-labels',
-      data,
+      data: labeled(data),
       getPosition: (d) => [...(d.position ?? [0, 0]), answerLabelZ(series, d.value, zoom)],
       getText: (d) => d.label ?? d.name,
       getColor: [...NAVY, 255],
