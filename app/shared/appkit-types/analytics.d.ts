@@ -5,27 +5,6 @@ import type { SQLTypeMarker, SQLStringMarker, SQLNumberMarker, SQLBooleanMarker,
 
 declare module "@databricks/appkit-ui/react" {
   interface QueryRegistry {
-    ais_h3_daily: {
-        name: "ais_h3_daily";
-        parameters: {
-          /** STRING - use sql.string() */
-          catalog: SQLStringMarker;
-          /** STRING - use sql.string() */
-          schema: SQLStringMarker;
-        };
-        result: Array<{
-          /** @sqlType STRING */
-          region: string;
-          /** @sqlType DATE */
-          day: string;
-          /** @sqlType STRING */
-          h3_res5_str: string;
-          /** @sqlType BIGINT */
-          unique_vessels: number;
-          /** @sqlType BIGINT */
-          positions: number;
-        }>;
-      };
     ais_regions: {
         name: "ais_regions";
         parameters: {
@@ -344,6 +323,37 @@ declare module "@databricks/appkit-ui/react" {
           baseline_portcalls_container: number;
           /** @sqlType DOUBLE */
           baseline_portcalls_dry_bulk: number;
+        }>;
+      };
+    vessel_positions: {
+        name: "vessel_positions";
+        parameters: {
+          /** STRING - use sql.string() */
+          catalog: SQLStringMarker;
+          /** STRING - use sql.string() */
+          schema: SQLStringMarker;
+        };
+        result: Array<{
+          /** @sqlType DATE */
+          day: string;
+          /** @sqlType BIGINT */
+          mmsi: number;
+          /** @sqlType STRING */
+          ship_name: string;
+          /** @sqlType DOUBLE */
+          lat: number;
+          /** @sqlType DOUBLE */
+          lon: number;
+          /** @sqlType DOUBLE */
+          sog_knots: number;
+          /** @sqlType DOUBLE */
+          cog_deg: number;
+          /** @sqlType INT */
+          nav_status: number;
+          /** @sqlType STRING */
+          region: string;
+          /** @sqlType TIMESTAMP */
+          received_at: string;
         }>;
       };
   }

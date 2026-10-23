@@ -114,12 +114,20 @@ export interface Region {
   area_km2: number;
 }
 
-export interface AisCell {
-  region: string;
+/** A vessel's last AIS position report on a day (UTC). */
+export interface VesselPosition {
   day: string;
-  h3_res5_str: string;
-  unique_vessels: number;
-  positions: number;
+  mmsi: number;
+  ship_name: string | null;
+  lat: number;
+  lon: number;
+  sog_knots: Num;
+  /** Course over ground, degrees clockwise from north; 360 means not available. */
+  cog_deg: Num;
+  /** AIS navigational status code; null for Class B reports, which carry none. */
+  nav_status: Num;
+  region: string;
+  received_at: string;
 }
 
 export interface Freshness {
@@ -154,7 +162,7 @@ export interface Dataset {
   events: ConflictEvent[];
   visibility: VisibilityPoint[];
   regions: Region[];
-  aisCells: AisCell[];
+  vessels: VesselPosition[];
   recs: LaneRec[];
   recsAvailable: boolean;
   freshness: Freshness | null;

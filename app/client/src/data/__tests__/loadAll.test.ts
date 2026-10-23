@@ -55,8 +55,19 @@ const fake =
         return [{ sample_id: 's', region: 'gulf_hormuz', unique_vessels: '54', visibility_vs_control: '0.15' }];
       case 'ais_regions':
         return [{ region: 'gulf_hormuz', lat_min: '22', area_km2: '1000.5' }];
-      case 'ais_h3_daily':
-        return [{ region: 'gulf_hormuz', day: '2026-10-01', h3_res5_str: 'abc', unique_vessels: '2', positions: '4' }];
+      case 'vessel_positions':
+        return [
+          {
+            day: '2026-10-01',
+            mmsi: '422000001',
+            ship_name: 'DUNE',
+            lat: '26.4',
+            lon: '56.2',
+            sog_knots: '11.2',
+            nav_status: '',
+          },
+          { day: '2026-10-01', mmsi: '422000002', lat: '', lon: '56.2' },
+        ];
       case 'lane_recommendation':
         return [
           {
@@ -94,7 +105,9 @@ describe('loadAll', () => {
     expect(d.ports[0].pct_of_baseline_portcalls_dry_bulk).toBeNull();
     expect(d.visibility[0].unique_vessels).toBe(54);
     expect(d.regions[0].area_km2).toBe(1000.5);
-    expect(d.aisCells[0].positions).toBe(4);
+    // A vessel without coordinates is dropped.
+    expect(d.vessels).toHaveLength(1);
+    expect(d.vessels[0]).toMatchObject({ mmsi: 422000001, lat: 26.4, sog_knots: 11.2, nav_status: null });
     expect(d.recsAvailable).toBe(true);
     expect(d.recs[0].action_probabilities).toEqual({ shift: 0.81, hold: 0.03 });
     expect(d.freshness).toEqual({

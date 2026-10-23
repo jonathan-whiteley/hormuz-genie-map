@@ -1,4 +1,4 @@
-import type { AisCell, ChokepointDay, Dataset, LaneDay, PortDay, VisibilityPoint } from './types';
+import type { ChokepointDay, Dataset, LaneDay, PortDay, VesselPosition } from './types';
 
 /** Ports with a baseline under this many calls a day are not drawn and the tour copy skips them (percent unreliable). */
 export const LOW_BASELINE = 1;
@@ -10,9 +10,8 @@ interface Index {
   ports: Map<string, PortDay[]>;
   chokepoints: Map<string, ChokepointDay[]>;
   lanes: Map<string, LaneDay[]>;
-  aisDays: string[];
-  aisByDay: Map<string, AisCell[]>;
-  visByRegion: Map<string, { t: number; v: VisibilityPoint }[]>;
+  vesselDays: string[];
+  vesselsByDay: Map<string, VesselPosition[]>;
 }
 
 const cache = new WeakMap<Dataset, Index>();
@@ -32,29 +31,19 @@ function groupSorted<T extends { date: string }>(rows: T[], key: (r: T) => strin
 export function indexOf(ds: Dataset): Index {
   const hit = cache.get(ds);
   if (hit) return hit;
-  const aisByDay = new Map<string, AisCell[]>();
-  for (const c of ds.aisCells) {
-    const d = String(c.day).slice(0, 10);
-    const arr = aisByDay.get(d);
-    if (arr) arr.push(c);
-    else aisByDay.set(d, [c]);
+  const vesselsByDay = new Map<string, VesselPosition[]>();
+  for (const v of ds.vessels) {
+    const d = String(v.day).slice(0, 10);
+    const arr = vesselsByDay.get(d);
+    if (arr) arr.push(v);
+    else vesselsByDay.set(d, [v]);
   }
-  const visByRegion = new Map<string, { t: number; v: VisibilityPoint }[]>();
-  for (const v of ds.visibility) {
-    const t = Date.parse(v.sample_hour);
-    if (Number.isNaN(t)) continue;
-    const arr = visByRegion.get(v.region);
-    if (arr) arr.push({ t, v });
-    else visByRegion.set(v.region, [{ t, v }]);
-  }
-  for (const arr of visByRegion.values()) arr.sort((a, b) => a.t - b.t);
   const idx: Index = {
     ports: groupSorted(ds.ports, (r) => r.port),
     chokepoints: groupSorted(ds.chokepoints, (r) => r.chokepoint),
     lanes: groupSorted(ds.lanes, (r) => r.lane_id),
-    aisDays: [...aisByDay.keys()].sort(),
-    aisByDay,
-    visByRegion,
+    vesselDays: [...vesselsByDay.keys()].sort(),
+    vesselsByDay,
   };
   cache.set(ds, idx);
   return idx;
@@ -94,19 +83,13 @@ export const portsOn = (ds: Dataset, date: string): PortDay[] => latestPer(index
 export const lanesOnIdx = (ds: Dataset, date: string): LaneDay[] =>
   latestPer(indexOf(ds).lanes, date).sort((a, b) => a.lane_id.localeCompare(b.lane_id));
 
-export function aisCellsOn(ds: Dataset, date: string): { day: string | null; cells: AisCell[] } {
+/** Vessel positions of the latest AIS day on or before the date. */
+export function vesselsOn(ds: Dataset, date: string): { day: string | null; vessels: VesselPosition[] } {
   const idx = indexOf(ds);
-  const i = lastLE(idx.aisDays, date, (d) => d);
-  if (i < 0) return { day: null, cells: [] };
-  const day = idx.aisDays[i];
-  return { day, cells: idx.aisByDay.get(day) ?? [] };
-}
-
-export function visibilityOn(ds: Dataset, region: string, date: string): VisibilityPoint | undefined {
-  const arr = indexOf(ds).visByRegion.get(region);
-  if (!arr) return undefined;
-  const i = lastLE(arr, Date.parse(`${date}T23:59:59.999Z`), (x) => x.t);
-  return i < 0 ? undefined : arr[i].v;
+  const i = lastLE(idx.vesselDays, date, (d) => d);
+  if (i < 0) return { day: null, vessels: [] };
+  const day = idx.vesselDays[i];
+  return { day, vessels: idx.vesselsByDay.get(day) ?? [] };
 }
 
 /** Latest row per chokepoint on or before the date. */

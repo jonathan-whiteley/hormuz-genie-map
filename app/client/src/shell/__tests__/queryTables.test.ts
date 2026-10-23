@@ -10,7 +10,7 @@ const QUERIES = [
   'conflict_events',
   'ais_visibility',
   'ais_regions',
-  'ais_h3_daily',
+  'vessel_positions',
   'lane_recommendation',
   'freshness',
 ];

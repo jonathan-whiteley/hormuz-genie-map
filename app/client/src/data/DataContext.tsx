@@ -36,7 +36,7 @@ function DataLoader({ catalog, schema, onData }: { catalog: string; schema: stri
     conflict_events: useAnalyticsQuery('conflict_events', p),
     ais_visibility: useAnalyticsQuery('ais_visibility', p),
     ais_regions: useAnalyticsQuery('ais_regions', p),
-    ais_h3_daily: useAnalyticsQuery('ais_h3_daily', p),
+    vessel_positions: useAnalyticsQuery('vessel_positions', p),
     lane_recommendation: useAnalyticsQuery('lane_recommendation', p),
     freshness: useAnalyticsQuery('freshness', p),
   } as Record<string, Slot>;

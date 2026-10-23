@@ -1,5 +1,4 @@
 import type {
-  AisCell,
   AltPort,
   ChokepointDay,
   ConflictEvent,
@@ -10,6 +9,7 @@ import type {
   LaneRec,
   PortDay,
   Region,
+  VesselPosition,
   VisibilityPoint,
 } from './types';
 
@@ -103,7 +103,7 @@ const VIS_NUM = [
   'vs_malacca_singapore',
 ];
 const REGION_NUM = ['lat_min', 'lon_min', 'lat_max', 'lon_max', 'area_km2'];
-const CELL_NUM = ['unique_vessels', 'positions'];
+const VESSEL_NUM = ['mmsi', 'lat', 'lon', 'sog_knots', 'cog_deg', 'nav_status'];
 
 const str = (v: unknown): string | null => (v == null || v === '' ? null : String(v));
 
@@ -129,7 +129,7 @@ export const emptyDataset = (): Dataset => ({
   events: [],
   visibility: [],
   regions: [],
-  aisCells: [],
+  vessels: [],
   recs: [],
   recsAvailable: false,
   freshness: null,
@@ -148,7 +148,7 @@ export async function loadAll(runQuery: RunQuery, cfg: { catalog: string; schema
     }
   };
 
-  const [choke, ports1, ports2, ports3, lanes, events, vis, regions, cells, recs, fresh] = await Promise.all([
+  const [choke, ports1, ports2, ports3, lanes, events, vis, regions, vessels, recs, fresh] = await Promise.all([
     get('chokepoints_daily'),
     get('ports_daily'),
     get('ports_daily_2'),
@@ -157,7 +157,7 @@ export async function loadAll(runQuery: RunQuery, cfg: { catalog: string; schema
     get('conflict_events'),
     get('ais_visibility'),
     get('ais_regions'),
-    get('ais_h3_daily'),
+    get('vessel_positions'),
     get('lane_recommendation', true),
     get('freshness'),
   ]);
@@ -177,7 +177,11 @@ export async function loadAll(runQuery: RunQuery, cfg: { catalog: string; schema
   if (events) ds.events = events.map(toEvent);
   if (vis) ds.visibility = vis.map((r) => coerce<VisibilityPoint>(r, VIS_NUM));
   if (regions) ds.regions = regions.map((r) => coerce<Region>(r, REGION_NUM));
-  if (cells) ds.aisCells = cells.map((r) => coerce<AisCell>(r, CELL_NUM));
+  if (vessels) {
+    ds.vessels = vessels
+      .map((r) => coerce<VesselPosition>(r, VESSEL_NUM))
+      .filter((v) => v.lat != null && v.lon != null);
+  }
   if (recs) {
     ds.recsAvailable = true;
     ds.recs = recs.map((r) => {

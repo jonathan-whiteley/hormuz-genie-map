@@ -4,7 +4,7 @@ const ROWS: { key: keyof Toggles; label: string }[] = [
   { key: 'chokepoints', label: 'Chokepoints' },
   { key: 'ports', label: 'Ports' },
   { key: 'lanes', label: 'Supply lanes' },
-  { key: 'ais', label: 'AIS coverage' },
+  { key: 'vessels', label: 'Vessels' },
 ];
 
 /** Floating top-left card with one switch per base layer. */

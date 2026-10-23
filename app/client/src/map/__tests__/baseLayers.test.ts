@@ -1,13 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { emptyDataset } from '../../data/loadAll';
-import type { ChokepointDay, Dataset, LaneDay, PortDay, Region } from '../../data/types';
+import type { ChokepointDay, Dataset, LaneDay, PortDay, VesselPosition } from '../../data/types';
 import {
   DIM_OPACITY,
   RESTING,
   buildBaseLayers,
   curve,
   laneSegments,
-  regionShort,
   shortName,
   visiblePorts,
   worstStatus,
@@ -55,29 +54,29 @@ const lane = (o: Partial<LaneDay>): LaneDay =>
     alt_ports: [],
     ...o,
   }) as LaneDay;
-const region = (o: Partial<Region>): Region =>
+const vessel = (o: Partial<VesselPosition>): VesselPosition =>
   ({
+    day: '2026-10-01',
+    mmsi: 422000001,
+    ship_name: 'DUNE',
+    lat: 26.4,
+    lon: 56.2,
+    sog_knots: 11.2,
+    cog_deg: 140,
+    nav_status: 0,
     region: 'gulf_hormuz',
-    role: 'target',
-    label: 'Persian Gulf, Strait of Hormuz',
-    lat_min: 22,
-    lon_min: 47,
-    lat_max: 30,
-    lon_max: 60,
-    area_km2: 1,
+    received_at: '2026-10-01T14:05:00.000Z',
     ...o,
-  }) as Region;
+  }) as VesselPosition;
 
 const ids = (layers: { id: string }[]) => layers.map((l) => l.id);
 
-describe('shortName and regionShort', () => {
-  it('shortens the long chokepoint and region names', () => {
+describe('shortName', () => {
+  it('shortens the long chokepoint names', () => {
     expect(shortName('Strait of Hormuz')).toBe('Hormuz');
     expect(shortName('Bab el-Mandeb Strait')).toBe('Bab el-Mandeb');
     expect(shortName('Suez Canal')).toBe('Suez');
     expect(shortName('Cape of Good Hope')).toBe('Cape of Good Hope');
-    expect(regionShort(region({}))).toBe('Gulf');
-    expect(regionShort(region({ region: 'other', label: 'Somewhere, Else' }))).toBe('Somewhere');
   });
 });
 
@@ -138,7 +137,7 @@ describe('worstStatus and curve', () => {
 });
 
 describe('buildBaseLayers', () => {
-  const d = ds({ chokepoints: [choke({})], ports: [port({})], lanes: [lane({})], regions: [region({})] });
+  const d = ds({ chokepoints: [choke({})], ports: [port({})], lanes: [lane({})], vessels: [vessel({})] });
   const build = (o: Partial<Parameters<typeof buildBaseLayers>[0]>) =>
     buildBaseLayers({ dataset: d, date: '2026-10-01', visible: RESTING, zoom: 4, dimmed: false, ...o });
 
@@ -146,18 +145,29 @@ describe('buildBaseLayers', () => {
     expect(ids(build({}))).toEqual(['chokepoints', 'chokepoint-labels']);
   });
 
-  it('adds AIS cells only from zoom 5 and port labels only from zoom 6', () => {
-    const all = { chokepoints: true, ports: true, lanes: true, ais: true };
-    expect(ids(build({ visible: all, zoom: 4 }))).toEqual([
-      'ais-regions',
-      'ais-region-labels',
-      'lanes',
-      'ports',
-      'chokepoints',
-      'chokepoint-labels',
-    ]);
-    expect(ids(build({ visible: all, zoom: 5 }))).toContain('ais-cells');
+  it('draws vessels above the lanes at any zoom, and port labels only from zoom 6', () => {
+    const all = { chokepoints: true, ports: true, lanes: true, vessels: true };
+    expect(ids(build({ visible: all, zoom: 3 }))).toEqual(['lanes', 'vessels', 'ports', 'chokepoints', 'chokepoint-labels']);
     expect(ids(build({ visible: all, zoom: 6 }))).toContain('port-labels');
+  });
+
+  it('draws the vessels of the latest AIS day on or before the date', () => {
+    const v = ds({
+      vessels: [
+        vessel({ day: '2026-09-29', mmsi: 1 }),
+        vessel({ day: '2026-09-30', mmsi: 2, ship_name: null }),
+        vessel({ day: '2026-09-30', mmsi: 3 }),
+        vessel({ day: '2026-10-02', mmsi: 4 }),
+      ],
+    });
+    const on = { ...RESTING, chokepoints: false, vessels: true };
+    const at = (date: string) =>
+      buildBaseLayers({ dataset: v, date, visible: on, zoom: 4, dimmed: false }).find((l) => l.id === 'vessels')?.props
+        .data as MapDatum[];
+    expect(at('2026-10-01').map((d) => d.vessel?.mmsi)).toEqual([2, 3]);
+    expect(at('2026-10-01')[0]).toMatchObject({ kind: 'vessel', name: 'MMSI 2', position: [56.2, 26.4] });
+    expect(at('2026-10-02').map((d) => d.name)).toEqual(['DUNE']);
+    expect(at('2026-09-28')).toEqual([]);
   });
 
   it('dims every base layer while an answer is on the map', () => {
@@ -185,7 +195,7 @@ describe('buildBaseLayers while an answer is on the map', () => {
   const suez = choke({ chokepoint: 'Suez Canal', lat: 30.6, lon: 32.3, n_total_7d_avg: 41, pct_of_baseline_total: 104 });
   const jebel = port({});
   const d = ds({ chokepoints: [hormuz, suez], ports: [jebel] });
-  const all = { chokepoints: true, ports: true, lanes: false, ais: false };
+  const all = { chokepoints: true, ports: true, lanes: false, vessels: false };
   const build = (o: Partial<Parameters<typeof buildBaseLayers>[0]>) =>
     buildBaseLayers({ dataset: d, date: '2026-10-01', visible: all, zoom: 6, dimmed: true, ...o });
   const names = (layers: { id: string; props: { data: unknown } }[], id: string) =>
@@ -210,16 +220,16 @@ describe('buildBaseLayers while an answer is on the map', () => {
 
   it('draws every base label on top of the columns', async () => {
     const { LABEL_ON_TOP } = await import('../columns');
-    const layers = build({ visible: { ...all, ais: true } });
+    const layers = build({});
     const labels = layers.filter((l) => l.id.endsWith('labels'));
-    expect(labels.map((l) => l.id)).toEqual(['ais-region-labels', 'port-labels', 'chokepoint-labels']);
+    expect(labels.map((l) => l.id)).toEqual(['port-labels', 'chokepoint-labels']);
     for (const l of labels) expect(l.props.parameters).toEqual(LABEL_ON_TOP);
   });
 });
 
 describe('buildBaseLayers zoom inputs', () => {
-  const d = ds({ chokepoints: [choke({})], ports: [port({})], regions: [region({})] });
-  const all = { chokepoints: true, ports: true, lanes: false, ais: true };
+  const d = ds({ chokepoints: [choke({})], ports: [port({})] });
+  const all = { chokepoints: true, ports: true, lanes: false, vessels: false };
   type P = { elevationScale: number; data: unknown[]; getPosition: (x: unknown) => number[] };
   const props = (layers: { id: string; props: unknown }[], id: string) => layers.find((l) => l.id === id)?.props as P;
 
@@ -230,8 +240,7 @@ describe('buildBaseLayers zoom inputs', () => {
     expect(props(layers, 'ports').elevationScale).toBe(elevationScaleFor(5.75));
     const lab = props(layers, 'chokepoint-labels');
     expect(lab.getPosition(lab.data[0])[2]).toBe(labelZ(4, 5.75));
-    // Integer zoom 5: AIS cells on, port labels (zoom 6) still off, even though the column zoom is near 6.
-    expect(ids(layers)).toContain('ais-cells');
+    // Integer zoom 5: port labels (zoom 6) still off, even though the column zoom is near 6.
     expect(ids(layers)).not.toContain('port-labels');
   });
 

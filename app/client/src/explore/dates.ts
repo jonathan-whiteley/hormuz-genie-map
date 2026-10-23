@@ -42,11 +42,11 @@ const maxDate = (rows: { date: string }[]): string | null =>
 const maxDay = (days: string[]): string | null =>
   days.reduce<string | null>((m, d) => (d.length === 10 && (m == null || d > m) ? d : m), null);
 
-/** Latest AIS day across visibility samples and H3 cell days (UTC), or null before any sample. */
+/** Latest AIS day across visibility samples and vessel position days (UTC), or null before any sample. */
 export function latestAisDay(ds: Dataset): string | null {
   return maxDay([
     ...ds.visibility.map((v) => String(v.sample_hour).slice(0, 10)),
-    ...ds.aisCells.map((c) => String(c.day).slice(0, 10)),
+    ...ds.vessels.map((v) => String(v.day).slice(0, 10)),
   ]);
 }
 
@@ -54,7 +54,7 @@ export function latestAisDay(ds: Dataset): string | null {
 export const latestVisibilityDay = (ds: Dataset): string | null =>
   maxDay(ds.visibility.map((v) => String(v.sample_hour).slice(0, 10)));
 
-/** Scrubber end: the latest of the PortWatch and AIS days, so the AIS layer is reachable. */
+/** Scrubber end: the latest of the PortWatch and AIS days, so the vessel layer is reachable. */
 export function scrubEnd(ds: Dataset): string {
   return (
     [maxDate(ds.ports), maxDate(ds.chokepoints), latestAisDay(ds)]

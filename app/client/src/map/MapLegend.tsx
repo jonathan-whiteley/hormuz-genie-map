@@ -1,4 +1,4 @@
-import { pctColor, rgbaCss, statusColor } from './colors';
+import { TEAL, pctColor, rgbaCss, statusColor } from './colors';
 import type { Toggles } from './baseLayers';
 import { legendItems } from './legendItems';
 
@@ -49,7 +49,12 @@ export function MapLegend({ toggles, answerOn }: { toggles: Toggles; answerOn: b
           ))}
         </div>
       )}
-      {items.includes('ais') && <div>AIS: share of a busy lane&apos;s visible vessels</div>}
+      {items.includes('vessels') && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <span style={{ width: 8, height: 8, borderRadius: '50%', background: rgbaCss(TEAL) }} />
+          Vessel, last AIS position that day
+        </div>
+      )}
       {items.includes('answer') && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           <span

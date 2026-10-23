@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { emptyDataset } from '../../data/loadAll';
-import type { AisCell, VisibilityPoint } from '../../data/types';
+import type { VesselPosition, VisibilityPoint } from '../../data/types';
 import { latestAisDay, monthTicks, scrubEnd } from '../dates';
 
 describe('monthTicks', () => {
@@ -17,13 +17,13 @@ describe('monthTicks', () => {
 
 describe('latestAisDay', () => {
   const vis = (h: string) => ({ region: 'gulf_hormuz', sample_hour: h }) as VisibilityPoint;
-  const cell = (day: string) => ({ region: 'gulf_hormuz', day }) as AisCell;
+  const vessel = (day: string) => ({ region: 'gulf_hormuz', day }) as VesselPosition;
   it('null before any sample', () => expect(latestAisDay(emptyDataset())).toBeNull());
-  it('max over visibility samples and cell days, and drives the scrubber end', () => {
-    const ds = { ...emptyDataset(), visibility: [vis('2026-10-13T20:00:00Z')], aisCells: [cell('2026-10-14')] };
+  it('max over visibility samples and vessel days, and drives the scrubber end', () => {
+    const ds = { ...emptyDataset(), visibility: [vis('2026-10-13T20:00:00Z')], vessels: [vessel('2026-10-14')] };
     expect(latestAisDay(ds)).toBe('2026-10-14');
     expect(scrubEnd(ds)).toBe('2026-10-14');
-    const ds2 = { ...emptyDataset(), visibility: [vis('2026-10-15T01:00:00Z')], aisCells: [cell('2026-10-14')] };
+    const ds2 = { ...emptyDataset(), visibility: [vis('2026-10-15T01:00:00Z')], vessels: [vessel('2026-10-14')] };
     expect(latestAisDay(ds2)).toBe('2026-10-15');
   });
 });

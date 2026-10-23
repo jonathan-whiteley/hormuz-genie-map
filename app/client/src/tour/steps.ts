@@ -30,7 +30,7 @@ export interface TourStep {
   event?: (ds: Dataset, date: string) => ConflictEvent | undefined;
 }
 
-const on = (o: Partial<Toggles>): Toggles => ({ chokepoints: false, ports: false, lanes: false, ais: false, ...o });
+const on = (o: Partial<Toggles>): Toggles => ({ chokepoints: false, ports: false, lanes: false, vessels: false, ...o });
 
 export const STEPS: TourStep[] = [
   {
@@ -78,7 +78,7 @@ export const STEPS: TourStep[] = [
     id: 5,
     title: 'What you cannot see',
     date: 'latest-ais',
-    toggles: on({ chokepoints: true, ais: true }),
+    toggles: on({ chokepoints: true, vessels: true }),
     center: [50.0, 30.0],
     zoom: 2.2,
     fitRegions: true,

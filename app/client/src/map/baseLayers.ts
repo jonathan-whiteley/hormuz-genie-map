@@ -1,25 +1,23 @@
 import type { Layer } from '@deck.gl/core';
-import { H3HexagonLayer } from '@deck.gl/geo-layers';
-import { ColumnLayer, PathLayer, PolygonLayer, TextLayer } from '@deck.gl/layers';
+import { ColumnLayer, PathLayer, ScatterplotLayer, TextLayer } from '@deck.gl/layers';
 import {
   LOW_BASELINE,
-  aisCellsOn,
   chokepointBaselines,
   lanesOnIdx,
   latestChokepoints,
   portsOn,
-  visibilityOn,
+  vesselsOn,
 } from '../data/dataIndex';
 import { fmtPct } from '../data/kpi';
-import type { Dataset, LaneDay, LaneStatus, PortDay, Region, VesselType } from '../data/types';
-import { NAVY, pctColor, statusColor, type RGBA } from './colors';
+import type { Dataset, LaneDay, LaneStatus, PortDay, VesselPosition, VesselType } from '../data/types';
+import { NAVY, TEAL, pctColor, statusColor, type RGBA } from './colors';
 import { COLUMN_RADIUS_PX, LABEL_ON_TOP, columnTransitions, elevationOf, elevationScaleFor, labelZ } from './columns';
 
 export type LngLat = [number, number];
 
 /** One pickable map object; the tooltip, popover and answer highlighting read these fields. */
 export interface MapDatum {
-  kind: 'port' | 'chokepoint' | 'lane' | 'region' | 'ais' | 'answer';
+  kind: 'port' | 'chokepoint' | 'lane' | 'vessel' | 'answer';
   name: string;
   position?: LngLat;
   pct?: number | null;
@@ -29,10 +27,8 @@ export interface MapDatum {
   path?: LngLat[];
   status?: LaneStatus;
   laneNames?: string[];
-  polygon?: LngLat[];
   hexagon?: string;
-  vessels?: number;
-  alpha?: number;
+  vessel?: VesselPosition;
   label?: string;
   /** Answer marks: the table row they belong to, and their feature key. */
   rowIndex?: number | null;
@@ -43,14 +39,12 @@ export interface Toggles {
   chokepoints: boolean;
   ports: boolean;
   lanes: boolean;
-  ais: boolean;
+  vessels: boolean;
 }
 
 /** The resting map: chokepoints only. */
-export const RESTING: Toggles = { chokepoints: true, ports: false, lanes: false, ais: false };
+export const RESTING: Toggles = { chokepoints: true, ports: false, lanes: false, vessels: false };
 
-/** H3 cells show from this zoom; below it the AIS layer is region outlines only. */
-export const AIS_CELL_ZOOM = 5;
 /** Port names show from this zoom; below it they show on hover. */
 export const PORT_LABEL_ZOOM = 6;
 /** Base layer opacity while a Genie answer is on the map. */
@@ -68,15 +62,6 @@ const SHORT: Record<string, string> = {
   'Suez Canal': 'Suez',
 };
 export const shortName = (name: string): string => SHORT[name] ?? name;
-
-const REGION_SHORT: Record<string, string> = {
-  gulf_hormuz: 'Gulf',
-  red_sea: 'Red Sea',
-  north_sea_channel: 'North Sea',
-  suez_east_med: 'East Med',
-  malacca_singapore: 'Malacca',
-};
-export const regionShort = (r: Region): string => REGION_SHORT[r.region] ?? r.label.split(',')[0].trim();
 
 const TYPES: VesselType[] = ['tanker', 'container', 'dry_bulk'];
 
@@ -188,7 +173,7 @@ export interface BaseArgs {
   dataset: Dataset;
   date: string;
   visible: Toggles;
-  /** Integer zoom for the layer thresholds (AIS cells at 5, port labels at 6). */
+  /** Integer zoom for the layer thresholds (port labels at 6). */
   zoom: number;
   /** Camera zoom rounded to ZOOM_STEP, for column heights and label altitude; defaults to `zoom`. */
   columnZoom?: number;
@@ -227,80 +212,6 @@ export function buildBaseLayers({
   const opacity = dimmed ? DIM_OPACITY : 1;
   const layers: Layer[] = [];
 
-  if (visible.ais) {
-    const regions: MapDatum[] = ds.regions.map((r) => {
-      const vis = visibilityOn(ds, r.region, date)?.visibility_vs_control ?? null;
-      const pct = isNum(vis) ? 100 * vis : null;
-      return {
-        kind: 'region',
-        name: r.label,
-        pct,
-        label: `${regionShort(r)}: ${pct === null ? 'no data' : `${fmtPct(pct)} visible`}`,
-        position: [r.lon_min + 0.2, r.lat_max - 0.2],
-        polygon: [
-          [r.lon_min, r.lat_min],
-          [r.lon_max, r.lat_min],
-          [r.lon_max, r.lat_max],
-          [r.lon_min, r.lat_max],
-        ],
-      };
-    });
-    layers.push(
-      new PolygonLayer<MapDatum>({
-        id: 'ais-regions',
-        data: regions,
-        opacity,
-        getPolygon: (d) => d.polygon ?? [],
-        stroked: true,
-        filled: false,
-        getLineColor: [...NAVY, 140],
-        lineWidthUnits: 'pixels',
-        getLineWidth: 1,
-        pickable: true,
-      }),
-      new TextLayer<MapDatum>({
-        id: 'ais-region-labels',
-        data: regions,
-        opacity,
-        getPosition: (d) => d.position ?? [0, 0],
-        getText: (d) => d.label ?? '',
-        getColor: [...NAVY, 255],
-        getSize: 12,
-        fontFamily: FONT,
-        fontWeight: 500,
-        characterSet: 'auto',
-        getTextAnchor: 'start',
-        getAlignmentBaseline: 'top',
-        background: true,
-        getBackgroundColor: LABEL_BG,
-        backgroundPadding: [5, 2],
-        parameters: LABEL_ON_TOP,
-      })
-    );
-    if (zoom >= AIS_CELL_ZOOM) {
-      const { cells } = aisCellsOn(ds, date);
-      const max = cells.reduce((m, c) => Math.max(m, c.unique_vessels || 0), 0) || 1;
-      layers.push(
-        new H3HexagonLayer<MapDatum>({
-          id: 'ais-cells',
-          data: cells.map((c) => ({
-            kind: 'ais',
-            name: c.h3_res5_str,
-            hexagon: c.h3_res5_str,
-            vessels: c.unique_vessels,
-            alpha: Math.round(60 + 140 * Math.min(1, (c.unique_vessels || 0) / max)),
-          })),
-          opacity,
-          getHexagon: (d) => d.hexagon ?? '',
-          extruded: false,
-          stroked: false,
-          getFillColor: (d): RGBA => [...NAVY, d.alpha ?? 60],
-          pickable: true,
-        })
-      );
-    }
-  }
-
   if (visible.lanes) {
     const segs = laneSegments(lanesOnIdx(ds, date));
     layers.push(
@@ -320,6 +231,31 @@ export function buildBaseLayers({
         widthUnits: 'pixels',
         capRounded: true,
         jointRounded: true,
+        pickable: true,
+      })
+    );
+  }
+
+  if (visible.vessels) {
+    const { vessels } = vesselsOn(ds, date);
+    layers.push(
+      new ScatterplotLayer<MapDatum>({
+        id: 'vessels',
+        data: vessels.map((v) => ({
+          kind: 'vessel',
+          name: v.ship_name ?? `MMSI ${v.mmsi}`,
+          position: [v.lon, v.lat],
+          vessel: v,
+        })),
+        opacity,
+        getPosition: (d) => d.position ?? [0, 0],
+        radiusUnits: 'pixels',
+        getRadius: 3,
+        getFillColor: [...TEAL, 220],
+        stroked: true,
+        lineWidthUnits: 'pixels',
+        getLineWidth: 0.75,
+        getLineColor: [255, 255, 255, 230],
         pickable: true,
       })
     );

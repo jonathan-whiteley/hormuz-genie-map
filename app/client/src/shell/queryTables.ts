@@ -8,7 +8,7 @@ export const QUERY_TABLES: Record<string, string> = {
   conflict_events: 'ref_conflict_events',
   ais_visibility: 'gold_ais_visibility_index',
   ais_regions: 'ref_ais_regions',
-  ais_h3_daily: 'gold_ais_h3_daily',
+  vessel_positions: 'silver_ais_positions',
   lane_recommendation: 'gold_lane_recommendation',
   freshness: 'gold_chokepoint_daily, gold_port_daily, gold_ais_visibility',
 };

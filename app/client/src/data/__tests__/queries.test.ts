@@ -14,8 +14,10 @@ describe('chokepoints_daily', () => {
 });
 
 describe('AIS queries stay under the 5 MB per-event cap', () => {
-  it('ais_h3_daily keeps the last 30 days', () => {
-    expect(sql('ais_h3_daily')).toMatch(/WHERE day >= date_sub\(current_date\(\), 30\)/);
+  it('vessel_positions keeps the last 7 days without the North Sea, one row per vessel per day', () => {
+    const q = sql('vessel_positions');
+    expect(q).toMatch(/WHERE window_start >= date_sub\(current_date\(\), 7\)\n  AND region <> 'north_sea_channel'/);
+    expect(q).toMatch(/PARTITION BY CAST\(window_start AS DATE\), mmsi ORDER BY received_at DESC\) = 1/);
   });
   it('ais_visibility keeps the last 30 days', () => {
     expect(sql('ais_visibility')).toMatch(/WHERE sample_hour >= current_timestamp\(\) - INTERVAL 30 DAYS/);

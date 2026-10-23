@@ -10,6 +10,7 @@ import type { MapDatum } from './baseLayers';
 import { PROGRAMMATIC, reportsCamera } from './cameraEvents';
 import { fitOptions } from './fit';
 import { tooltipPos } from './tooltip';
+import { fmtHeard, navStatusLabel } from './vessels';
 
 maplibregl.setWorkerUrl(workerUrl);
 
@@ -79,14 +80,24 @@ function TooltipBody({ d }: { d: MapDatum }) {
           {row('Status', d.status ?? 'no data')}
         </>
       );
-    case 'ais':
+    case 'vessel': {
+      const v = d.vessel;
       return (
         <>
-          <strong>AIS cell</strong>
-          {row('Vessels heard', fmtNum(d.vessels))}
-          <div style={{ color: 'var(--gray-700)' }}>Measures visibility, not traffic</div>
+          <strong>{d.name}</strong>
+          {v && (
+            <>
+              {row('MMSI', String(v.mmsi))}
+              {row('Speed', v.sog_knots == null ? 'no data' : `${fmtNum(v.sog_knots, 1)} kn`)}
+              {row('Course', v.cog_deg == null || v.cog_deg >= 360 ? 'no data' : `${fmtNum(v.cog_deg)}°`)}
+              {row('Status', navStatusLabel(v.nav_status))}
+              {row('Last heard', fmtHeard(v.received_at))}
+            </>
+          )}
+          <div style={{ color: 'var(--gray-700)' }}>Only ships broadcasting AIS appear</div>
         </>
       );
+    }
     case 'answer':
       return (
         <>
